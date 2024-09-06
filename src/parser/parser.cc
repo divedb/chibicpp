@@ -215,6 +215,10 @@ std::unique_ptr<Node> Parser::parse_unary() {
   return parse_primary();
 }
 
+/// primary ::= "(" expr ")"
+///           | ident args?
+///           | num
+/// args    ::= "(" ")"
 std::unique_ptr<Node> Parser::parse_primary() {
   if (lexer_.try_consume("(")) {
     auto node = parse_expr();
@@ -226,6 +230,17 @@ std::unique_ptr<Node> Parser::parse_primary() {
   Token token;
 
   if (lexer_.try_consume_identifier(token)) {
+    /// Check function call.
+    if (lexer_.try_consume("(")) {
+      lexer_.expect(")");
+
+      auto node = std::make_unique<Node>(NodeKind::kFunCall);
+      node->func_name = token.as_str();
+
+      return node;
+    }
+
+    /// Variable.
     Var* var = find_var(token);
 
     /// If this variable NOT exists.

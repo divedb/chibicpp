@@ -31,6 +31,7 @@ enum class NodeKind {
   kWhile,     ///< "while"
   kFor,       ///< "for"
   kBlock,     ///< {...}
+  kFunCall,   ///< Function call
   kExprStmt,  ///< Expression statement
   kVar,       ///< Variable
   kNum,       ///< Integer
@@ -88,6 +89,9 @@ struct Node {
 
   /// Block statement.
   std::vector<std::unique_ptr<Node>> body;
+
+  /// Function call.
+  std::string func_name;
 
   Var* var;  ///< Used if kind == kVar.
   long val;  ///< Used if kind == kNum.
