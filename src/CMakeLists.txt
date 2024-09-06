@@ -1,0 +1,5 @@
+add_library(lex lex/tokenizer.cc)
+add_library(parser parser/parser.cc)
+add_library(codegen codegen/backend.cc)
+add_executable(chibicpp main/chibicpp.cc)
+target_link_libraries(chibicpp PRIVATE lex parser codegen)
