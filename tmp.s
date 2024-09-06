@@ -16,7 +16,18 @@ main:
   pop rdx
   pop rsi
   pop rdi
+  mov rax, rsp
+  and rax, 15
+  jnz .L.call.0
+  mov rax, 0
   call add6
+  jmp .L.end.0
+.L.call.0:
+  sub rsp, 8
+  mov rax, 0
+  call add6
+  add rsp, 8
+.L.end.0:
   push rax
   pop rax
   jmp .L.return

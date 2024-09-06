@@ -139,7 +139,23 @@ void Backend::visit_node(Node* node) {
         std::cout << "  pop " << kArgReg[i] << '\n';
       }
 
+      /// We need to align RSP to a 16 byte boundary before
+      /// calling a function because it is an ABI requirement.
+      /// RAX is set to 0 for variadic function.
+      int seq = label_seq_++;
+
+      std::cout << "  mov rax, rsp\n";
+      std::cout << "  and rax, 15\n";
+      std::cout << "  jnz .L.call." << seq << '\n';
+      std::cout << "  mov rax, 0\n";
       std::cout << "  call " << node->func_name << '\n';
+      std::cout << "  jmp .L.end." << seq << '\n';
+      std::cout << ".L.call." << seq << ":\n";
+      std::cout << "  sub rsp, 8\n";
+      std::cout << "  mov rax, 0\n";
+      std::cout << "  call " << node->func_name << '\n';
+      std::cout << "  add rsp, 8\n";
+      std::cout << ".L.end." << seq << ":\n";
       std::cout << "  push rax\n";
       return;
     }
