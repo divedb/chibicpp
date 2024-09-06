@@ -30,6 +30,7 @@ enum class NodeKind {
   kIf,        ///< "if"
   kWhile,     ///< "while"
   kFor,       ///< "for"
+  kBlock,     ///< {...}
   kExprStmt,  ///< Expression statement
   kVar,       ///< Variable
   kNum,       ///< Integer
@@ -84,6 +85,9 @@ struct Node {
   std::unique_ptr<Node> els;
   std::unique_ptr<Node> init;
   std::unique_ptr<Node> inc;
+
+  /// Block statement.
+  std::vector<std::unique_ptr<Node>> body;
 
   Var* var;  ///< Used if kind == kVar.
   long val;  ///< Used if kind == kNum.

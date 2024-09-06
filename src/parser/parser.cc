@@ -78,6 +78,19 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     return node;
   }
 
+  if (lexer_.try_consume("{")) {
+    std::vector<std::unique_ptr<Node>> body;
+
+    while (!lexer_.try_consume("}")) {
+      body.push_back(parse_stmt());
+    }
+
+    auto node = std::make_unique<Node>(NodeKind::kBlock);
+    node->body = std::move(body);
+
+    return node;
+  }
+
   auto node = read_expr_stmt();
   lexer_.expect(";");
 
