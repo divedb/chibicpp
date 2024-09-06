@@ -6,6 +6,9 @@ namespace chibicpp {
 
 class Backend : public AstVisitor {
  public:
+  static constexpr const char* kArgReg[]{"rdi", "rsi", "rdx",
+                                         "rcx", "r8",  "r9"};
+
   virtual void visit_function(Function* func) override;
   virtual void visit_node(Node* node) override;
 

@@ -128,10 +128,21 @@ void Backend::visit_node(Node* node) {
 
       return;
 
-    case NodeKind::kFunCall:
+    case NodeKind::kFunCall: {
+      int nargs = node->args.size();
+
+      for (auto& arg : node->args) {
+        visit_node(arg.get());
+      }
+
+      for (int i = nargs - 1; i >= 0; i--) {
+        std::cout << "  pop " << kArgReg[i] << '\n';
+      }
+
       std::cout << "  call " << node->func_name << '\n';
       std::cout << "  push rax\n";
       return;
+    }
 
     case NodeKind::kReturn:
       visit_node(node->lhs.get());

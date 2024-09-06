@@ -46,6 +46,8 @@ class Parser {
   /// \return A pointer to `Var` if it exists, otherwise NULL.
   Var* find_var(Token const& token) const;
 
+  std::vector<std::unique_ptr<Node>> parse_func_args();
+
   Lexer& lexer_;
   std::vector<std::unique_ptr<Var>> locals_;
 };

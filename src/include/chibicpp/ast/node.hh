@@ -92,6 +92,7 @@ struct Node {
 
   /// Function call.
   std::string func_name;
+  std::vector<std::unique_ptr<Node>> args;
 
   Var* var;  ///< Used if kind == kVar.
   long val;  ///< Used if kind == kNum.

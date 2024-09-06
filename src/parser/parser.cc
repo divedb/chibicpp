@@ -216,7 +216,7 @@ std::unique_ptr<Node> Parser::parse_unary() {
 }
 
 /// primary ::= "(" expr ")"
-///           | ident args?
+///           | ident func-args?
 ///           | num
 /// args    ::= "(" ")"
 std::unique_ptr<Node> Parser::parse_primary() {
@@ -232,10 +232,9 @@ std::unique_ptr<Node> Parser::parse_primary() {
   if (lexer_.try_consume_identifier(token)) {
     /// Check function call.
     if (lexer_.try_consume("(")) {
-      lexer_.expect(")");
-
       auto node = std::make_unique<Node>(NodeKind::kFunCall);
       node->func_name = token.as_str();
+      node->args = parse_func_args();
 
       return node;
     }
@@ -273,6 +272,25 @@ Var* Parser::find_var(Token const& token) const {
 
 std::unique_ptr<Node> Parser::read_expr_stmt() {
   return make_a_unary(NodeKind::kExprStmt, parse_expr());
+}
+
+/// \brief func-args ::= "(" (assign ("," assign)*)? ")"
+/// \return
+std::vector<std::unique_ptr<Node>> Parser::parse_func_args() {
+  if (lexer_.try_consume(")")) {
+    return {};
+  }
+
+  std::vector<std::unique_ptr<Node>> args;
+  args.push_back(parse_assign());
+
+  while (lexer_.try_consume(",")) {
+    args.push_back(parse_assign());
+  }
+
+  lexer_.expect(")");
+
+  return args;
 }
 
 }  // namespace chibicpp
