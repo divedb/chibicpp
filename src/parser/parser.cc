@@ -54,6 +54,30 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     return node;
   }
 
+  if (lexer_.try_consume("for")) {
+    auto node = std::make_unique<Node>(NodeKind::kFor);
+    lexer_.expect("(");
+
+    if (!lexer_.try_consume(";")) {
+      node->init = read_expr_stmt();
+      lexer_.expect(";");
+    }
+
+    if (!lexer_.try_consume(";")) {
+      node->cond = parse_expr();
+      lexer_.expect(";");
+    }
+
+    if (!lexer_.try_consume(")")) {
+      node->inc = read_expr_stmt();
+      lexer_.expect(")");
+    }
+
+    node->then = parse_stmt();
+
+    return node;
+  }
+
   auto node = read_expr_stmt();
   lexer_.expect(";");
 

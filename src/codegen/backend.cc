@@ -93,6 +93,34 @@ void Backend::visit_node(Node* node) {
       return;
     }
 
+    case NodeKind::kFor: {
+      int seq = label_seq_++;
+
+      if (node->init) {
+        visit_node(node->init.get());
+      }
+
+      std::cout << ".L.begin." << seq << ":\n";
+
+      if (node->cond) {
+        visit_node(node->cond.get());
+        std::cout << "  pop rax\n";
+        std::cout << "  cmp rax, 0\n";
+        std::cout << "  je  .L.end." << seq << '\n';
+      }
+
+      visit_node(node->then.get());
+
+      if (node->inc) {
+        visit_node(node->inc.get());
+      }
+
+      std::cout << "  jmp .L.begin." << seq << '\n';
+      std::cout << ".L.end." << seq << ":\n";
+
+      return;
+    }
+
     case NodeKind::kReturn:
       visit_node(node->lhs.get());
       std::cout << "  pop rax\n";

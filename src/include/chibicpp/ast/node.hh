@@ -29,6 +29,7 @@ enum class NodeKind {
   kReturn,    ///< "return"
   kIf,        ///< "if"
   kWhile,     ///< "while"
+  kFor,       ///< "for"
   kExprStmt,  ///< Expression statement
   kVar,       ///< Variable
   kNum,       ///< Integer
@@ -77,10 +78,12 @@ struct Node {
   std::unique_ptr<Node> lhs;  ///< Left-hand node.
   std::unique_ptr<Node> rhs;  ///< Right-hand node.
 
-  /// "if" or "while" statement.
+  /// "if", "while" or "for" statement.
   std::unique_ptr<Node> cond;
   std::unique_ptr<Node> then;
   std::unique_ptr<Node> els;
+  std::unique_ptr<Node> init;
+  std::unique_ptr<Node> inc;
 
   Var* var;  ///< Used if kind == kVar.
   long val;  ///< Used if kind == kNum.
