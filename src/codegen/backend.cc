@@ -8,10 +8,15 @@
 
 namespace chibicpp {
 
-void Backend::visit_function(Function* func) {
+void Backend::visit_program(Program* prog, AstContext& context) {
   std::cout << ".intel_syntax noprefix\n";
-  std::cout << ".global main\n";
-  std::cout << "main:\n";
+  prog->accept(*this, context);
+}
+
+void Backend::visit_function(Function* func, AstContext& context) {
+  auto func_name = func->name();
+  std::cout << ".global " << func_name << '\n';
+  std::cout << func_name << ":\n";
 
   /// Prologue.
   std::cout << "  push rbp\n";
@@ -19,16 +24,16 @@ void Backend::visit_function(Function* func) {
   std::cout << "  sub rsp, " << func->stack_size() << '\n';
 
   /// Emit code.
-  func->accept(*this);
+  func->accept(*this, context);
 
   /// Epilogue.
-  std::cout << ".L.return:\n";
+  std::cout << ".L.return." << func_name << ":\n";
   std::cout << "  mov rsp, rbp\n";
   std::cout << "  pop rbp\n";
   std::cout << "  ret\n";
 }
 
-void Backend::visit_node(Node* node) {
+void Backend::visit_node(Node* node, AstContext& context) {
   auto kind = node->kind;
 
   switch (kind) {
@@ -37,7 +42,7 @@ void Backend::visit_node(Node* node) {
       return;
 
     case NodeKind::kExprStmt:
-      visit_node(node->lhs.get());
+      visit_node(node->lhs.get(), context);
       /// TODO(gc): why add 8?
       std::cout << "  add rsp, 8\n";
       return;
@@ -50,29 +55,29 @@ void Backend::visit_node(Node* node) {
 
     case NodeKind::kAssign:
       gen_addr(node->lhs.get());
-      visit_node(node->rhs.get());
+      visit_node(node->rhs.get(), context);
       store();
       return;
 
     case NodeKind::kIf: {
       int seq = label_seq_++;
 
-      visit_node(node->cond.get());
+      visit_node(node->cond.get(), context);
 
       if (node->els) {
         std::cout << "  pop rax\n";
         std::cout << "  cmp rax, 0\n";
         std::cout << "  je  .L.else." << seq << '\n';
-        visit_node(node->then.get());
+        visit_node(node->then.get(), context);
         std::cout << "  jmp .L.end." << seq << '\n';
         std::cout << ".L.else." << seq << ":\n";
-        visit_node(node->els.get());
+        visit_node(node->els.get(), context);
         std::cout << ".L.end." << seq << ":\n";
       } else {
         std::cout << "  pop rax\n";
         std::cout << "  cmp rax, 0\n";
         std::cout << "  je  .L.end." << seq << '\n';
-        visit_node(node->then.get());
+        visit_node(node->then.get(), context);
         std::cout << ".L.end." << seq << ":\n";
       }
 
@@ -82,11 +87,11 @@ void Backend::visit_node(Node* node) {
     case NodeKind::kWhile: {
       int seq = label_seq_++;
       std::cout << ".L.begin." << seq << ":\n";
-      visit_node(node->cond.get());
+      visit_node(node->cond.get(), context);
       std::cout << "  pop rax\n";
       std::cout << "  cmp rax, 0\n";
       std::cout << "  je  .L.end." << seq << '\n';
-      visit_node(node->then.get());
+      visit_node(node->then.get(), context);
       std::cout << "  jmp .L.begin." << seq << '\n';
       std::cout << ".L.end." << seq << ":\n";
 
@@ -97,22 +102,22 @@ void Backend::visit_node(Node* node) {
       int seq = label_seq_++;
 
       if (node->init) {
-        visit_node(node->init.get());
+        visit_node(node->init.get(), context);
       }
 
       std::cout << ".L.begin." << seq << ":\n";
 
       if (node->cond) {
-        visit_node(node->cond.get());
+        visit_node(node->cond.get(), context);
         std::cout << "  pop rax\n";
         std::cout << "  cmp rax, 0\n";
         std::cout << "  je  .L.end." << seq << '\n';
       }
 
-      visit_node(node->then.get());
+      visit_node(node->then.get(), context);
 
       if (node->inc) {
-        visit_node(node->inc.get());
+        visit_node(node->inc.get(), context);
       }
 
       std::cout << "  jmp .L.begin." << seq << '\n';
@@ -123,7 +128,7 @@ void Backend::visit_node(Node* node) {
 
     case NodeKind::kBlock:
       for (auto& e : node->body) {
-        visit_node(e.get());
+        visit_node(e.get(), context);
       }
 
       return;
@@ -132,7 +137,7 @@ void Backend::visit_node(Node* node) {
       int nargs = node->args.size();
 
       for (auto& arg : node->args) {
-        visit_node(arg.get());
+        visit_node(arg.get(), context);
       }
 
       for (int i = nargs - 1; i >= 0; i--) {
@@ -161,17 +166,17 @@ void Backend::visit_node(Node* node) {
     }
 
     case NodeKind::kReturn:
-      visit_node(node->lhs.get());
+      visit_node(node->lhs.get(), context);
       std::cout << "  pop rax\n";
-      std::cout << "  jmp .L.return\n";
+      std::cout << "  jmp .L.return." << context.func->name() << '\n';
       return;
 
     default:
       break;
   }
 
-  visit_node(node->lhs.get());
-  visit_node(node->rhs.get());
+  visit_node(node->lhs.get(), context);
+  visit_node(node->rhs.get(), context);
 
   std::cout << "  pop rdi\n";
   std::cout << "  pop rax\n";

@@ -14,9 +14,11 @@ class Parser {
  public:
   explicit Parser(Lexer& lexer) : lexer_(lexer) {}
 
-  std::unique_ptr<Function> program();
+  std::unique_ptr<Program> program();
 
  private:
+  std::unique_ptr<Function> parse_function();
+
   /// stmt = "return" expr ";"
   ///      | "if" "(" expr ")" stmt ( "else" stmt )?
   ///      | expr ";"

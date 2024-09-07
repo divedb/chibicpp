@@ -14,14 +14,12 @@ int main(int argc, char** argv) {
   /// Parse program.
   Lexer lexer(argv[1], std::strlen(argv[1]));
   Parser parser(lexer);
-  auto func = parser.program();
-
-  assert(func != nullptr);
+  auto prog = parser.program();
 
   /// Update function local variable offset and generate code.
-  func->update_offset();
   Backend codegen;
-  codegen.visit_function(func.get());
+  AstContext context;
+  codegen.visit_program(prog.get(), context);
 
   return 0;
 }

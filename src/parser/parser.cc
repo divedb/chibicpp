@@ -6,15 +6,37 @@
 
 namespace chibicpp {
 
-std::unique_ptr<Function> Parser::program() {
-  std::vector<std::unique_ptr<Node>> nodes;
+/// \brief program ::= function*
+///
+/// \return
+std::unique_ptr<Program> Parser::program() {
+  std::vector<std::unique_ptr<Function>> prog;
 
   while (!lexer_.is_eof()) {
+    auto func = parse_function();
+    prog.push_back(std::move(func));
+  }
+
+  return std::make_unique<Program>(std::move(prog));
+}
+
+std::unique_ptr<Function> Parser::parse_function() {
+  Token token;
+  lexer_.expect_identider(token);
+  lexer_.expect("(");
+  lexer_.expect(")");
+  lexer_.expect("{");
+  locals_.clear();
+
+  std::vector<std::unique_ptr<Node>> nodes;
+
+  while (!lexer_.try_consume("}")) {
     auto node = parse_stmt();
     nodes.push_back(std::move(node));
   }
 
-  return std::make_unique<Function>(std::move(nodes), std::move(locals_));
+  return std::make_unique<Function>(token.as_str(), std::move(nodes),
+                                    std::move(locals_));
 }
 
 /// \brief stmt ::= "return" expr ";"

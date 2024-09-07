@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "chibicpp/ast/ast_context.hh"
 #include "chibicpp/ast/visitor.hh"
 #include "chibicpp/lex/token.hh"
 
@@ -145,14 +146,21 @@ inline void dump(std::ostream& os, Node* node) {
 
 class Function {
  public:
-  Function(std::vector<std::unique_ptr<Node>> nodes,
+  Function(std::string name, std::vector<std::unique_ptr<Node>> nodes,
            std::vector<std::unique_ptr<Var>> locals)
-      : nodes_(std::move(nodes)), locals_(std::move(locals)), stack_size_(0) {}
+      : stack_size_(0),
+        name_(std::move(name)),
+        nodes_(std::move(nodes)),
+        locals_(std::move(locals)) {}
 
   int stack_size() const { return stack_size_; }
-  void accept(AstVisitor& visitor) {
+  void accept(AstVisitor& visitor, AstContext& context) {
+    /// We need to update the AST context to reflect that we are currently
+    /// visiting this function.
+    context.func = this;
+
     for (auto& node : nodes_) {
-      visitor.visit_node(node.get());
+      visitor.visit_node(node.get(), context);
     }
   }
 
@@ -169,10 +177,40 @@ class Function {
     stack_size_ = offset;
   }
 
+  /// \brief Get function name.
+  ///
+  /// \return
+  std::string name() const { return name_; }
+
  private:
+  int stack_size_;
+  std::string name_;
   std::vector<std::unique_ptr<Node>> nodes_;
   std::vector<std::unique_ptr<Var>> locals_;
-  int stack_size_;
+};
+
+class Program {
+ public:
+  Program() = default;
+  explicit Program(std::vector<std::unique_ptr<Function>> other)
+      : funcs_(std::move(other)) {
+    update_offset();
+  }
+
+  void accept(AstVisitor& visitor, AstContext& context) {
+    for (auto& func : funcs_) {
+      visitor.visit_function(func.get(), context);
+    }
+  }
+
+ private:
+  void update_offset() {
+    for (auto& func : funcs_) {
+      func->update_offset();
+    }
+  }
+
+  std::vector<std::unique_ptr<Function>> funcs_;
 };
 
 inline std::unique_ptr<Node> make_a_var(Var* var) {

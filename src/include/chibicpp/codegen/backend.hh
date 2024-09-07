@@ -9,8 +9,9 @@ class Backend : public AstVisitor {
   static constexpr const char* kArgReg[]{"rdi", "rsi", "rdx",
                                          "rcx", "r8",  "r9"};
 
-  virtual void visit_function(Function* func) override;
-  virtual void visit_node(Node* node) override;
+  virtual void visit_program(Program* prog, AstContext& context) override;
+  virtual void visit_function(Function* func, AstContext& context) override;
+  virtual void visit_node(Node* node, AstContext& context) override;
 
  private:
   void gen_addr(Node* node);
