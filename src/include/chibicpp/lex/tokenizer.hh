@@ -328,30 +328,36 @@ class Lexer {
     return true;
   }
 
-  void expect(char const* op) {
+  Lexer& expect(char const* op) {
     if (!try_consume(op)) {
       CHIBICPP_THROW_ERROR("expected ", std::quoted(op));
     }
+
+    return *this;
   }
 
-  void expect_number(Token& token) {
+  Lexer& expect_number(Token& token) {
     if (is_eof() || tokens_[idx_].kind() != TokenKind::kNum) {
       CHIBICPP_THROW_ERROR("expected a number");
     }
 
     token = tokens_[idx_++];
+
+    return *this;
   }
 
   /// \brief Expect next token is an identifier. If it is, this token will be
   ///        consumed, otherwise an exception will be thrown.
   ///
   /// \param token
-  void expect_identider(Token& token) {
+  Lexer& expect_identider(Token& token) {
     if (is_eof() || tokens_[idx_].kind() != TokenKind::kIdentifier) {
       CHIBICPP_THROW_ERROR("expected an identifier");
     }
 
     token = tokens_[idx_++];
+
+    return *this;
   }
 
   /* constexpr */ bool is_eof() const { return idx_ >= tokens_.size(); }

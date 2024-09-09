@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
@@ -147,10 +148,11 @@ inline void dump(std::ostream& os, Node* node) {
 class Function {
  public:
   Function(std::string name, std::vector<std::unique_ptr<Node>> nodes,
-           std::vector<std::unique_ptr<Var>> locals)
+           std::vector<Var*> params, std::deque<std::unique_ptr<Var>> locals)
       : stack_size_(0),
         name_(std::move(name)),
         nodes_(std::move(nodes)),
+        params_(std::move(params)),
         locals_(std::move(locals)) {}
 
   int stack_size() const { return stack_size_; }
@@ -182,11 +184,25 @@ class Function {
   /// \return
   std::string name() const { return name_; }
 
+  /// @name Parameter Iterators
+  /// @{
+
+  /// \brief
+  ///
+  /// \return
+  auto param_begin() { return params_.begin(); }
+  auto param_begin() const { return params_.begin(); }
+  auto param_end() { return params_.end(); }
+  auto param_end() const { return params_.end(); }
+
+  /// @}
+
  private:
   int stack_size_;
   std::string name_;
   std::vector<std::unique_ptr<Node>> nodes_;
-  std::vector<std::unique_ptr<Var>> locals_;
+  std::vector<Var*> params_;  ///< The locals include parameter.
+  std::deque<std::unique_ptr<Var>> locals_;
 };
 
 class Program {

@@ -23,6 +23,13 @@ void Backend::visit_function(Function* func, AstContext& context) {
   std::cout << "  mov rbp, rsp\n";
   std::cout << "  sub rsp, " << func->stack_size() << '\n';
 
+  /// Push arguments to the stack.
+  int i = 0;
+  for (auto iter = func->param_begin(); iter != func->param_end(); iter++) {
+    std::cout << "  mov [rbp-" << (*iter)->offset << "], " << kArgReg[i++]
+              << '\n';
+  }
+
   /// Emit code.
   func->accept(*this, context);
 

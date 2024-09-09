@@ -20,14 +20,17 @@ std::unique_ptr<Program> Parser::program() {
   return std::make_unique<Program>(std::move(prog));
 }
 
+/// \brief function ::= ident "(" params? ")" "{" stmt* "}"
+///        params   ::= ident ("," indent)*
+///
+/// @return
 std::unique_ptr<Function> Parser::parse_function() {
-  Token token;
-  lexer_.expect_identider(token);
-  lexer_.expect("(");
-  lexer_.expect(")");
+  Token func_name;
+  lexer_.expect_identider(func_name).expect("(");
+  auto params = parse_func_params();
   lexer_.expect("{");
-  locals_.clear();
 
+  locals_.clear();
   std::vector<std::unique_ptr<Node>> nodes;
 
   while (!lexer_.try_consume("}")) {
@@ -35,8 +38,8 @@ std::unique_ptr<Function> Parser::parse_function() {
     nodes.push_back(std::move(node));
   }
 
-  return std::make_unique<Function>(token.as_str(), std::move(nodes),
-                                    std::move(locals_));
+  return std::make_unique<Function>(func_name.as_str(), std::move(nodes),
+                                    std::move(params), std::move(locals_));
 }
 
 /// \brief stmt ::= "return" expr ";"
@@ -269,7 +272,7 @@ std::unique_ptr<Node> Parser::parse_primary() {
     if (var == nullptr) {
       auto owner = std::make_unique<Var>(token.as_str(), 0);
       var = owner.get();
-      locals_.push_back(std::move(owner));
+      locals_.push_front(std::move(owner));
     }
 
     return make_a_var(var);
@@ -294,6 +297,33 @@ Var* Parser::find_var(Token const& token) const {
 
 std::unique_ptr<Node> Parser::read_expr_stmt() {
   return make_a_unary(NodeKind::kExprStmt, parse_expr());
+}
+
+/// \brief func-params ::= "(" args ")"
+///        args        ::= empty
+///                      | arg (,arg)*
+///
+/// @return
+std::vector<Var*> Parser::parse_func_params() {
+  if (lexer_.try_consume(")")) {
+    return {};
+  }
+
+  Token token;
+  std::vector<Var*> params;
+
+  lexer_.expect_identider(token);
+  locals_.push_front(std::make_unique<Var>(token.as_str(), 0));
+  params.push_back(locals_.front().get());
+
+  while (!lexer_.try_consume(")")) {
+    lexer_.expect(",");
+    lexer_.expect_identider(token);
+    locals_.push_front(std::make_unique<Var>(token.as_str(), 0));
+    params.push_back(locals_.front().get());
+  }
+
+  return params;
 }
 
 /// \brief func-args ::= "(" (assign ("," assign)*)? ")"

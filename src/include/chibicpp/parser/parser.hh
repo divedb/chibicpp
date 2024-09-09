@@ -1,3 +1,4 @@
+#include <deque>
 #include <memory>
 #include <vector>
 
@@ -35,6 +36,8 @@ class Parser {
 
   std::unique_ptr<Node> read_expr_stmt();
 
+  std::vector<Var*> parse_func_params();
+
   /// \brief primary ::= "(" expr ")" | ident | num
   /// \return
   std::unique_ptr<Node> parse_primary();
@@ -51,7 +54,7 @@ class Parser {
   std::vector<std::unique_ptr<Node>> parse_func_args();
 
   Lexer& lexer_;
-  std::vector<std::unique_ptr<Var>> locals_;
+  std::deque<std::unique_ptr<Var>> locals_;
 };
 
 }  // namespace chibicpp
