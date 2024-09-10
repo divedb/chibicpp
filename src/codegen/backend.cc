@@ -55,15 +55,24 @@ void Backend::visit_node(Node* node, AstContext& context) {
       return;
 
     case NodeKind::kVar:
-      gen_addr(node);
+      gen_addr(node, context);
       load();
 
       return;
 
     case NodeKind::kAssign:
-      gen_addr(node->lhs.get());
+      gen_addr(node->lhs.get(), context);
       visit_node(node->rhs.get(), context);
       store();
+      return;
+
+    case NodeKind::kAddr:
+      gen_addr(node->lhs.get(), context);
+      return;
+
+    case NodeKind::kDeref:
+      visit_node(node->lhs.get(), context);
+      load();
       return;
 
     case NodeKind::kIf: {
@@ -239,11 +248,16 @@ void Backend::visit_node(Node* node, AstContext& context) {
 /// \brief Pushes the given node's address to the stack.
 ///
 /// \param node
-void Backend::gen_addr(Node* node) {
-  if (node->kind == NodeKind::kVar) {
-    std::cout << "  lea rax, [rbp-" << node->var->offset << "]\n";
-    std::cout << "  push rax\n";
-    return;
+void Backend::gen_addr(Node* node, AstContext& context) {
+  switch (node->kind) {
+    case NodeKind::kVar:
+      std::cout << "  lea rax, [rbp-" << node->var->offset << "]\n";
+      std::cout << "  push rax\n";
+      return;
+
+    case NodeKind::kDeref:
+      visit_node(node->lhs.get(), context);
+      return;
   }
 
   CHIBICPP_THROW_ERROR("Not an lvalue");

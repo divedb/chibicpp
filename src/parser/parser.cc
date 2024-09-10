@@ -224,7 +224,7 @@ std::unique_ptr<Node> Parser::parse_mul() {
   assert(false);
 }
 
-/// \brief unary ::= ("+" | "-")? unary
+/// \brief unary ::= ("+" | "-" | "*" | "&")? unary
 ///                | primary
 ///
 /// \return
@@ -235,6 +235,14 @@ std::unique_ptr<Node> Parser::parse_unary() {
 
   if (lexer_.try_consume("-")) {
     return make_a_binary(NodeKind::kSub, make_a_number(0), parse_unary());
+  }
+
+  if (lexer_.try_consume("&")) {
+    return make_a_unary(NodeKind::kAddr, parse_unary());
+  }
+
+  if (lexer_.try_consume("*")) {
+    return make_a_unary(NodeKind::kDeref, parse_unary());
   }
 
   return parse_primary();

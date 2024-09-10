@@ -28,6 +28,8 @@ enum class NodeKind {
   kLt,        ///< <
   kLe,        ///< <=
   kAssign,    ///< =
+  kAddr,      ///< unary &
+  kDeref,     ///< unary *
   kReturn,    ///< "return"
   kIf,        ///< "if"
   kWhile,     ///< "while"
