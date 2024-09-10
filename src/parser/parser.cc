@@ -2,9 +2,52 @@
 
 #include <cassert>
 
+#include "chibicpp/ast/type.hh"
 #include "chibicpp/lex/tokenizer.hh"
 
 namespace chibicpp {
+
+static std::unique_ptr<Node> new_add(std::unique_ptr<Node> lhs,
+                                     std::unique_ptr<Node> rhs) {
+  add_type(lhs.get());
+  add_type(rhs.get());
+
+  if (lhs->is_integer() && rhs->is_integer()) {
+    return make_a_binary(NodeKind::kAdd, std::move(lhs), std::move(rhs));
+  }
+
+  if (lhs->has_base() && rhs->is_integer()) {
+    return make_a_binary(NodeKind::kPtrAdd, std::move(lhs), std::move(rhs));
+  }
+
+  if (lhs->is_integer() && rhs->has_base()) {
+    return make_a_binary(NodeKind::kPtrAdd, std::move(lhs), std::move(rhs));
+  }
+
+  // TODO(gc): Add more error information.
+  CHIBICPP_THROW_ERROR("Add: invalid operands");
+}
+
+static std::unique_ptr<Node> new_sub(std::unique_ptr<Node> lhs,
+                                     std::unique_ptr<Node> rhs) {
+  add_type(lhs.get());
+  add_type(rhs.get());
+
+  if (lhs->is_integer() && rhs->is_integer()) {
+    return make_a_binary(NodeKind::kSub, std::move(lhs), std::move(rhs));
+  }
+
+  if (lhs->has_base() && rhs->is_integer()) {
+    return make_a_binary(NodeKind::kPtrSub, std::move(lhs), std::move(rhs));
+  }
+
+  if (lhs->has_base() && rhs->has_base()) {
+    return make_a_binary(NodeKind::kPtrDiff, std::move(lhs), std::move(rhs));
+  }
+
+  // TODO(gc): Add more error information.
+  CHIBICPP_THROW_ERROR("Subtract: invalid operands");
+}
 
 /// \brief program ::= function*
 ///
@@ -36,6 +79,11 @@ std::unique_ptr<Function> Parser::parse_function() {
   while (!lexer_.try_consume("}")) {
     auto node = parse_stmt();
     nodes.push_back(std::move(node));
+  }
+
+  // Update the node's type information.
+  for (auto& node : nodes) {
+    add_type(node.get());
   }
 
   return std::make_unique<Function>(func_name.as_str(), std::move(nodes),
@@ -192,9 +240,9 @@ std::unique_ptr<Node> Parser::parse_add() {
 
   for (;;) {
     if (lexer_.try_consume("+")) {
-      node = make_a_binary(NodeKind::kAdd, std::move(node), parse_mul());
+      node = new_add(std::move(node), parse_mul());
     } else if (lexer_.try_consume("-")) {
-      node = make_a_binary(NodeKind::kSub, std::move(node), parse_mul());
+      node = new_sub(std::move(node), parse_mul());
     } else {
       return node;
     }

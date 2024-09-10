@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "chibicpp/ast/ast_context.hh"
+#include "chibicpp/ast/type.hh"
 #include "chibicpp/ast/visitor.hh"
 #include "chibicpp/lex/token.hh"
 
@@ -19,8 +20,11 @@ struct Var {
 
 /// AST node.
 enum class NodeKind {
-  kAdd,       ///< +
+  kAdd,       ///< num + num
+  kPtrAdd,    ///< ptr + num or num + ptr
   kSub,       ///< -
+  kPtrSub,    ///< ptr - num
+  kPtrDiff,   ///< ptr - ptr
   kMul,       ///< *
   kDiv,       ///< /
   kEq,        ///< ==
@@ -79,10 +83,31 @@ inline std::string node_kind_to_string(NodeKind kind) {
 struct Node {
   explicit Node(NodeKind kind) : kind(kind) {}
 
-  NodeKind kind;  ///< Node kind.
+  /// \brief Check if this node is an integer.
+  ///
+  /// \return `true` if this node is an integer, otherwise false.
+  bool is_integer() const;
 
-  std::unique_ptr<Node> lhs;  ///< Left-hand node.
-  std::unique_ptr<Node> rhs;  ///< Right-hand node.
+  /// \brief Check if this node has a base type.
+  ///
+  /// For pointer type, like `int*`, the base type is `int`.
+  ///
+  /// \return The base type of this node if it exists, otherwise nullptr.
+  bool has_base() const;
+
+  auto block_begin() { return body.begin(); }
+  auto block_begin() const { return body.begin(); }
+  auto block_end() { return body.end(); }
+  auto block_end() const { return body.end(); }
+  auto args_begin() { return args.begin(); }
+  auto args_begin() const { return args.begin(); }
+  auto args_end() { return args.end(); }
+  auto args_end() const { return args.end(); }
+
+  NodeKind kind;               ///< Node kind.
+  std::unique_ptr<Type> type;  ///< Type, e.g. int or pointer to int
+  std::unique_ptr<Node> lhs;   ///< Left-hand node.
+  std::unique_ptr<Node> rhs;   ///< Right-hand node.
 
   /// "if", "while" or "for" statement.
   std::unique_ptr<Node> cond;

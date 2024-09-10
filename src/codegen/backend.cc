@@ -202,8 +202,25 @@ void Backend::visit_node(Node* node, AstContext& context) {
       std::cout << "  add rax, rdi\n";
       break;
 
+    case NodeKind::kPtrAdd:
+      std::cout << "  imul rdi, 8\n";
+      std::cout << "  add rax, rdi\n";
+      break;
+
     case NodeKind::kSub:
       std::cout << "  sub rax, rdi\n";
+      break;
+
+    case NodeKind::kPtrSub:
+      std::cout << "  imul rdi, 8\n";
+      std::cout << "  sub rax, rdi\n";
+      break;
+
+    case NodeKind::kPtrDiff:
+      std::cout << "  sub rax, rdi\n";
+      std::cout << "  cqo\n";
+      std::cout << "  mov rdi, 8\n";
+      std::cout << "  idiv rdi\n";
       break;
 
     case NodeKind::kMul:
