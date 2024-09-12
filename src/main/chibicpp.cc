@@ -16,14 +16,18 @@ int main(int argc, char** argv) {
     CHIBICPP_THROW_ERROR(argv[0], ": invalid number of arguments");
   }
 
-  /// std::set_terminate(print_stack_trace);
+  // std::set_terminate(print_stack_trace);
 
-  /// Parse program.
+  // Parse program.
   Lexer lexer(argv[1], std::strlen(argv[1]));
   Parser parser(lexer);
   auto prog = parser.program();
 
-  /// Update function local variable offset and generate code.
+  // for (auto iter = prog->func_begin(); iter != prog->func_end(); iter++) {
+  //   (*iter)->dump_var_with_typeinfo(std::cout);
+  // }
+
+  // Update function local variable offset and generate code.
   Backend codegen;
   AstContext context;
   codegen.visit_program(prog.get(), context);

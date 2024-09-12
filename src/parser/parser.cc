@@ -2,6 +2,7 @@
 
 #include <cassert>
 
+#include "chibicpp/ast/node_dump.hh"
 #include "chibicpp/ast/type.hh"
 #include "chibicpp/lex/tokenizer.hh"
 
@@ -21,11 +22,13 @@ static std::unique_ptr<Node> new_add(std::unique_ptr<Node> lhs,
   }
 
   if (lhs->is_integer() && rhs->has_base()) {
-    return make_a_binary(NodeKind::kPtrAdd, std::move(lhs), std::move(rhs));
+    return make_a_binary(NodeKind::kPtrAdd, std::move(rhs), std::move(lhs));
   }
 
   // TODO(gc): Add more error information.
   CHIBICPP_THROW_ERROR("Add: invalid operands");
+
+  __builtin_unreachable();
 }
 
 static std::unique_ptr<Node> new_sub(std::unique_ptr<Node> lhs,
@@ -47,6 +50,8 @@ static std::unique_ptr<Node> new_sub(std::unique_ptr<Node> lhs,
 
   // TODO(gc): Add more error information.
   CHIBICPP_THROW_ERROR("Subtract: invalid operands");
+
+  __builtin_unreachable();
 }
 
 /// \brief program ::= function*
@@ -56,6 +61,7 @@ std::unique_ptr<Program> Parser::program() {
   std::vector<std::unique_ptr<Function>> prog;
 
   while (!lexer_.is_eof()) {
+    locals_.clear();
     auto func = parse_function();
     prog.push_back(std::move(func));
   }
@@ -63,36 +69,52 @@ std::unique_ptr<Program> Parser::program() {
   return std::make_unique<Program>(std::move(prog));
 }
 
-/// \brief function ::= ident "(" params? ")" "{" stmt* "}"
-///        params   ::= ident ("," indent)*
+Function::Prototype Parser::parse_function_prototype() {
+  Token fname;
+
+  Type* ret_type = parse_basetype();
+  lexer_.expect_identider(fname);
+  lexer_.expect("(");
+  auto params = parse_func_params();
+
+  return {ret_type, fname.as_str(), params};
+}
+
+std::vector<std::unique_ptr<Node>> Parser::parse_function_body() {
+  std::vector<std::unique_ptr<Node>> body;
+
+  lexer_.expect("{");
+  while (!lexer_.try_consume("}")) {
+    auto node = parse_stmt();
+    body.push_back(std::move(node));
+  }
+
+  return body;
+}
+
+/// \brief function ::= basetype ident "(" params? ")" "{" stmt* "}"
+///        params   ::= param ("," param)*
+///        param    ::= basetype ident
 ///
 /// @return
 std::unique_ptr<Function> Parser::parse_function() {
-  Token func_name;
-  lexer_.expect_identider(func_name).expect("(");
-  auto params = parse_func_params();
-  lexer_.expect("{");
-
-  locals_.clear();
-  std::vector<std::unique_ptr<Node>> nodes;
-
-  while (!lexer_.try_consume("}")) {
-    auto node = parse_stmt();
-    nodes.push_back(std::move(node));
-  }
+  auto proto = parse_function_prototype();
+  auto body = parse_function_body();
 
   // Update the node's type information.
-  for (auto& node : nodes) {
+  for (auto& node : body) {
     add_type(node.get());
   }
 
-  return std::make_unique<Function>(func_name.as_str(), std::move(nodes),
-                                    std::move(params), std::move(locals_));
+  return std::make_unique<Function>(proto, std::move(body), std::move(locals_));
 }
 
 /// \brief stmt ::= "return" expr ";"
 ///               | "if" "(" expr ")" stmt ("else" stmt)?
 ///               | "while" "(" expr ")" stmt
+///               | "for" "(" expr? ";" expr? ";" expr? ")" stmt
+///               | "{" stmt* "}"
+///               | declaration
 ///               | expr ";"
 /// \return
 std::unique_ptr<Node> Parser::parse_stmt() {
@@ -162,6 +184,12 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     node->body = std::move(body);
 
     return node;
+  }
+
+  Token token;
+
+  if (lexer_.try_peek("int", token)) {
+    return parse_declaration();
   }
 
   auto node = read_expr_stmt();
@@ -296,6 +324,29 @@ std::unique_ptr<Node> Parser::parse_unary() {
   return parse_primary();
 }
 
+/// \brief declaration ::= basetype ident ("=" expr) ";"
+///
+/// \return
+std::unique_ptr<Node> Parser::parse_declaration() {
+  Token identifier;
+  Type* type = parse_basetype();
+  lexer_.expect_identider(identifier);
+  Var* var = get_or_create_var(identifier, type);
+
+  if (lexer_.try_consume(";")) {
+    return std::make_unique<Node>(NodeKind::kEmpty);
+  }
+
+  lexer_.expect("=");
+  auto lhs = make_a_var(var);
+  auto rhs = parse_expr();
+  lexer_.expect(";");
+
+  auto node = make_a_binary(NodeKind::kAssign, std::move(lhs), std::move(rhs));
+
+  return make_a_unary(NodeKind::kExprStmt, std::move(node));
+}
+
 /// primary ::= "(" expr ")"
 ///           | ident func-args?
 ///           | num
@@ -311,7 +362,7 @@ std::unique_ptr<Node> Parser::parse_primary() {
   Token token;
 
   if (lexer_.try_consume_identifier(token)) {
-    /// Check function call.
+    // Check function call.
     if (lexer_.try_consume("(")) {
       auto node = std::make_unique<Node>(NodeKind::kFunCall);
       node->func_name = token.as_str();
@@ -320,16 +371,10 @@ std::unique_ptr<Node> Parser::parse_primary() {
       return node;
     }
 
-    /// Variable.
-    Var* var = find_var(token);
+    // Variable.
+    Var* var = get_or_create_var(token);
 
-    /// If this variable NOT exists.
-    /// TODO(gc): But why it doesn't exist?
-    if (var == nullptr) {
-      auto owner = std::make_unique<Var>(token.as_str(), 0);
-      var = owner.get();
-      locals_.push_front(std::move(owner));
-    }
+    assert(var != nullptr);
 
     return make_a_var(var);
   }
@@ -339,20 +384,48 @@ std::unique_ptr<Node> Parser::parse_primary() {
   return make_a_number(token.as_i64());
 }
 
-Var* Parser::find_var(Token const& token) const {
-  auto iter = std::find_if(
-      locals_.begin(), locals_.end(),
-      [&token](auto const& var) { return var->name == token.as_str(); });
+/// \brief basetype ::= "int" "*"*
+///
+/// \return
+Type* Parser::parse_basetype() {
+  // Support `int` now.
+  lexer_.expect("int");
+  Type* type = TypeMgr::get_primitive(kInt);
 
-  if (iter == locals_.end()) {
-    return nullptr;
+  while (lexer_.try_consume("*")) {
+    type = TypeMgr::get_pointer(type);
   }
 
-  return (*iter).get();
+  return type;
+}
+
+Var* Parser::get_or_create_var(Token const& token, Type* type) {
+  auto const& name = token.as_str();
+
+  auto iter =
+      std::find_if(locals_.begin(), locals_.end(),
+                   [&name](auto const& var) { return var->name == name; });
+
+  if (iter != locals_.end()) {
+    return iter->get();
+  }
+
+  auto var = std::make_unique<Var>(name, type, /*offset*/ 0);
+  locals_.push_front(std::move(var));
+
+  return locals_.front().get();
 }
 
 std::unique_ptr<Node> Parser::read_expr_stmt() {
   return make_a_unary(NodeKind::kExprStmt, parse_expr());
+}
+
+Var* Parser::parse_func_param() {
+  Token token;
+  Type* type = parse_basetype();
+  lexer_.expect_identider(token);
+
+  return get_or_create_var(token, type);
 }
 
 /// \brief func-params ::= "(" args ")"
@@ -365,19 +438,18 @@ std::vector<Var*> Parser::parse_func_params() {
     return {};
   }
 
-  Token token;
   std::vector<Var*> params;
-
-  lexer_.expect_identider(token);
-  locals_.push_front(std::make_unique<Var>(token.as_str(), 0));
-  params.push_back(locals_.front().get());
+  params.push_back(parse_func_param());
 
   while (!lexer_.try_consume(")")) {
     lexer_.expect(",");
-    lexer_.expect_identider(token);
-    locals_.push_front(std::make_unique<Var>(token.as_str(), 0));
-    params.push_back(locals_.front().get());
+    params.push_back(parse_func_param());
   }
+
+  // for (auto p : params) {
+  //   std::cout << std::quoted(p->name) << ':' << p->type->to_string()
+  //             << std::endl;
+  // }
 
   return params;
 }

@@ -3,21 +3,9 @@
 #include <cassert>
 
 #include "chibicpp/ast/node.hh"
+#include "chibicpp/common/error.hh"
 
 namespace chibicpp {
-
-/// \brief Get integer type.
-///
-/// \return
-// static Type* int_type() {
-//   static Type type;
-//   type.kind = TypeKind::kInt;
-//   type.base = nullptr;
-
-//   return &type;
-// }
-
-bool is_integer(Type* type) { return type->kind == TypeKind::kInt; }
 
 void add_type(Node* node) {
   if (!node || node->type) {
@@ -51,34 +39,76 @@ void add_type(Node* node) {
     case NodeKind::kNe:
     case NodeKind::kLt:
     case NodeKind::kLe:
-    case NodeKind::kVar:
     case NodeKind::kFunCall:
     case NodeKind::kNum:
-      node->type = std::make_unique<Type>(TypeKind::kInt, nullptr);
+      node->type = TypeMgr::get_primitive(kInt);
+
       return;
 
     case NodeKind::kPtrAdd:
     case NodeKind::kPtrSub:
     case NodeKind::kAssign:
-      node->type =
-          std::make_unique<Type>(node->lhs->type->kind, node->lhs->type->base);
-      return;
-    case NodeKind::kAddr:
-      node->type =
-          std::make_unique<Type>(TypeKind::kPointer, node->lhs->type.get());
-      return;
-    case NodeKind::kDeref:
-      if (node->lhs->type->kind == TypeKind::kPointer) {
-        assert(node->lhs->type->base != nullptr);
+      node->type = node->lhs->type;
 
-        node->type = std::make_unique<Type>(node->lhs->type->base->kind,
-                                            node->lhs->type->base->base);
-      } else {
-        node->type = std::make_unique<Type>(TypeKind::kInt, nullptr);
+      return;
+
+    case NodeKind::kVar:
+      node->type = node->var->type;
+
+      return;
+
+    case NodeKind::kAddr:
+      node->type = TypeMgr::get_pointer(node->lhs->type);
+
+      return;
+
+    case NodeKind::kDeref:
+      if (!node->lhs->type->is_pointer()) {
+        CHIBICPP_THROW_ERROR("Deference on non-pointer type");
       }
 
+      node->type = node->lhs->type->base();
+
       return;
+
+    default:
+      // std::cout << "Unhandled node kind: " << static_cast<int>(node->kind)
+      //           << std::endl;
+
+      break;
   }
+}
+
+std::string Type::to_string() const {
+  std::string str;
+
+  static std::map<int, std::string> primitive_type_descriptor{
+      {kSigned, "signed"}, {kUnsigned, "unsigned"},  {kShort, "short"},
+      {kLong, "long"},     {kLongLong, "long long"}, {kChar, "char"},
+      {kInt, "int"},       {kFloat, "float"},        {kDouble, "double"}};
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-enum-enum-conversion"
+
+#define INT_INITIALIZER(...) \
+  std::initializer_list<int> { __VA_ARGS__ }
+
+  for (auto key : INT_INITIALIZER(kSigned, kUnsigned, kShort, kLong, kLongLong,
+                                  kChar, kInt, kFloat, kDouble)) {
+    if (kind_ & key) {
+      str += primitive_type_descriptor[key];
+    }
+  }
+
+#undef INT_INITIALIZER
+
+#pragma GCC diagnostic pop
+
+  if (is_pointer()) {
+    str = base_->to_string() + '*';
+  }
+
+  return str;
 }
 
 }  // namespace chibicpp

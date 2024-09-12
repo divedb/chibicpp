@@ -4,7 +4,7 @@
 
 namespace chibicpp {
 
-bool Node::is_integer() const { return type->kind == TypeKind::kInt; }
-bool Node::has_base() const { return type->base != nullptr; }
+bool Node::is_integer() const { return type->is_integer(); }
+bool Node::has_base() const { return type->base() != nullptr; }
 
 }  // namespace chibicpp

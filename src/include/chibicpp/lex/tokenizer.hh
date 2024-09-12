@@ -281,6 +281,32 @@ class Lexer {
     }
   }
 
+  bool try_peek(char const* op, Token& out_token) {
+    if (is_eof()) {
+      return false;
+    }
+
+    Token token = tokens_[idx_];
+    TokenKind kind = token.kind();
+
+    // Keywords or punctuators.
+    if (kind != TokenKind::kReserved) {
+      return false;
+    }
+
+    auto str = token.as_str();
+
+    // If size or content is not matched.
+    if (strlen(op) != str.size() ||
+        std::strncmp(op, str.data(), str.size()) != 0) {
+      return false;
+    }
+
+    out_token = token;
+
+    return true;
+  }
+
   /// \brief Try to consume the specified token.
   ///
   /// Tokenizer tries to compare the specified `token` with current token in
@@ -290,29 +316,14 @@ class Lexer {
   /// \param op
   /// \return `true` if succeed to consume this token, otherwise `false`.
   bool try_consume(char const* op) {
-    if (is_eof()) {
-      return false;
+    Token dummy;
+    auto succeed = try_peek(op, dummy);
+
+    if (succeed) {
+      idx_++;
     }
 
-    Token token = tokens_[idx_];
-    TokenKind kind = token.kind();
-
-    /// Keywords or punctuators.
-    if (kind != TokenKind::kReserved) {
-      return false;
-    }
-
-    auto str = token.as_str();
-
-    /// If size or content is NOT matched.
-    if (strlen(op) != str.size() ||
-        std::strncmp(op, str.data(), str.size()) != 0) {
-      return false;
-    }
-
-    idx_++;
-
-    return true;
+    return succeed;
   }
 
   /// \brief Try to consume next token and expect it's an identifier.
@@ -328,36 +339,30 @@ class Lexer {
     return true;
   }
 
-  Lexer& expect(char const* op) {
+  void expect(char const* op) {
     if (!try_consume(op)) {
-      CHIBICPP_THROW_ERROR("expected ", std::quoted(op));
+      CHIBICPP_THROW_ERROR("Expected ", std::quoted(op));
     }
-
-    return *this;
   }
 
-  Lexer& expect_number(Token& token) {
+  void expect_number(Token& token) {
     if (is_eof() || tokens_[idx_].kind() != TokenKind::kNum) {
-      CHIBICPP_THROW_ERROR("expected a number");
+      CHIBICPP_THROW_ERROR("Expected a number");
     }
 
     token = tokens_[idx_++];
-
-    return *this;
   }
 
   /// \brief Expect next token is an identifier. If it is, this token will be
   ///        consumed, otherwise an exception will be thrown.
   ///
   /// \param token
-  Lexer& expect_identider(Token& token) {
+  void expect_identider(Token& token) {
     if (is_eof() || tokens_[idx_].kind() != TokenKind::kIdentifier) {
-      CHIBICPP_THROW_ERROR("expected an identifier");
+      CHIBICPP_THROW_ERROR("Expected an identifier");
     }
 
     token = tokens_[idx_++];
-
-    return *this;
   }
 
   /* constexpr */ bool is_eof() const { return idx_ >= tokens_.size(); }

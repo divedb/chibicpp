@@ -15,6 +15,7 @@ namespace chibicpp {
 
 struct Var {
   std::string name;  ///< Do we shared the memory buffer
+  Type* type;        ///< Variable type.
   int offset;        ///< Offset from RBP.
 };
 
@@ -43,42 +44,8 @@ enum class NodeKind {
   kExprStmt,  ///< Expression statement
   kVar,       ///< Variable
   kNum,       ///< Integer
+  kEmpty,     ///< Empty statement
 };
-
-inline std::string node_kind_to_string(NodeKind kind) {
-  switch (kind) {
-    case NodeKind::kAdd:
-      return "+";
-    case NodeKind::kSub:
-      return "-";
-    case NodeKind::kMul:
-      return "*";
-    case NodeKind::kDiv:
-      return "/";
-    case NodeKind::kEq:
-      return "==";
-    case NodeKind::kNe:
-      return "!=";
-    case NodeKind::kLt:
-      return "<";
-    case NodeKind::kLe:
-      return "<=";
-    case NodeKind::kAssign:
-      return "=";
-    case NodeKind::kReturn:
-      return "return";
-    case NodeKind::kIf:
-      return "if";
-    case NodeKind::kExprStmt:
-      return "kExprStmt";
-    case NodeKind::kVar:
-      return "kVar";
-    case NodeKind::kNum:
-      return "kNum";
-    default:
-      return "Unknown";
-  }
-}
 
 struct Node {
   explicit Node(NodeKind kind) : kind(kind) {}
@@ -104,10 +71,10 @@ struct Node {
   auto args_end() { return args.end(); }
   auto args_end() const { return args.end(); }
 
-  NodeKind kind;               ///< Node kind.
-  std::unique_ptr<Type> type;  ///< Type, e.g. int or pointer to int
-  std::unique_ptr<Node> lhs;   ///< Left-hand node.
-  std::unique_ptr<Node> rhs;   ///< Right-hand node.
+  NodeKind kind;              ///< Node kind.
+  Type* type{};               ///< Type, e.g. int or pointer to int
+  std::unique_ptr<Node> lhs;  ///< Left-hand node.
+  std::unique_ptr<Node> rhs;  ///< Right-hand node.
 
   /// "if", "while" or "for" statement.
   std::unique_ptr<Node> cond;
@@ -127,74 +94,79 @@ struct Node {
   long val;  ///< Used if kind == kNum.
 };
 
-inline bool is_binary_operator(NodeKind kind) {
-  return kind == NodeKind::kAdd || kind == NodeKind::kSub ||
-         kind == NodeKind::kMul || kind == NodeKind::kDiv ||
-         kind == NodeKind::kEq || kind == NodeKind::kNe ||
-         kind == NodeKind::kLt || kind == NodeKind::kLe ||
-         kind == NodeKind::kAssign;
-}
-
-inline void dump(std::ostream& os, Node* node) {
-  if (node == nullptr) {
-    return;
-  }
-
-  auto kind = node->kind;
-
-  if (kind == NodeKind::kNum) {
-    os << node->val;
-  } else if (is_binary_operator(kind)) {
-    dump(os, node->lhs.get());
-    os << node_kind_to_string(kind);
-    dump(os, node->rhs.get());
-  } else if (kind == NodeKind::kReturn) {
-    os << node_kind_to_string(kind);
-    dump(os, node->lhs.get());
-  } else if (kind == NodeKind::kIf) {
-    os << "if (";
-    dump(os, node->cond.get());
-    os << ")\n{";
-    dump(os, node->then.get());
-    os << "\n}";
-
-    if (node->els) {
-      os << "else {";
-      dump(os, node->els.get());
-      os << "}";
-    }
-  } else if (kind == NodeKind::kExprStmt) {
-    dump(os, node->lhs.get());
-  } else if (kind == NodeKind::kVar) {
-    os << node->var->name;
-  } else {
-    assert(false);
-  }
-}
-
 class Function {
  public:
-  Function(std::string name, std::vector<std::unique_ptr<Node>> nodes,
-           std::vector<Var*> params, std::deque<std::unique_ptr<Var>> locals)
-      : stack_size_(0),
-        name_(std::move(name)),
-        nodes_(std::move(nodes)),
-        params_(std::move(params)),
-        locals_(std::move(locals)) {}
+  struct Prototype {
+    Type* ret_type;            ///< Return type.
+    std::string fname;         ///< Function name.
+    std::vector<Var*> params;  ///< Parameters.
+  };
 
+  /// \brief Construct a function with the given function prototype, body and
+  ///        local variables.
+  ///
+  /// \param prototype The prototype of the function.
+  /// \param body The function body.
+  /// \param locals Local variables within the function.
+  Function(Prototype const& prototype, std::vector<std::unique_ptr<Node>> body,
+           std::deque<std::unique_ptr<Var>> locals)
+      : stack_size_(0),
+        prototype_(prototype),
+        body_(std::move(body)),
+        locals_(std::move(locals)) {
+    update_offset();
+  }
+
+  /// \brief Get the stack size required for this function.
+  ///
+  /// For example, consider a function `foo`. The approximate stack size
+  /// required for this function is 3 * sizeof(int).
+  /// @code
+  /// void foo() { int a = 1; int b = 2; int c = 3; }
+  /// @endcode
+  ///
+  /// \return Stack size.
   int stack_size() const { return stack_size_; }
+
   void accept(AstVisitor& visitor, AstContext& context) {
     /// We need to update the AST context to reflect that we are currently
     /// visiting this function.
     context.func = this;
 
-    for (auto& node : nodes_) {
+    for (auto& node : body_) {
       visitor.visit_node(node.get(), context);
     }
   }
 
-  /// \brief Not a good way to do it.
-  ///        TODO(gc): fix it.
+  /// \brief Get function name.
+  ///
+  /// \return
+  std::string name() const { return prototype_.fname; }
+
+  /// @name Parameter Iterators
+  /// @{
+
+  /// \brief
+  ///
+  /// \return
+  auto param_begin() { return prototype_.params.begin(); }
+  auto param_begin() const { return prototype_.params.begin(); }
+  auto param_end() { return prototype_.params.end(); }
+  auto param_end() const { return prototype_.params.end(); }
+
+  /// @}
+
+  /// \brief This method is used for debugging purposes.
+  ///
+  /// It prints the variables within this function along with their
+  /// corresponding types.
+  void dump_var_with_typeinfo(std::ostream& os) const {
+    for (auto& var : locals_) {
+      os << var->name << ':' << var->type->to_string() << std::endl;
+    }
+  }
+
+ private:
   void update_offset() {
     int offset = 0;
 
@@ -206,29 +178,9 @@ class Function {
     stack_size_ = offset;
   }
 
-  /// \brief Get function name.
-  ///
-  /// \return
-  std::string name() const { return name_; }
-
-  /// @name Parameter Iterators
-  /// @{
-
-  /// \brief
-  ///
-  /// \return
-  auto param_begin() { return params_.begin(); }
-  auto param_begin() const { return params_.begin(); }
-  auto param_end() { return params_.end(); }
-  auto param_end() const { return params_.end(); }
-
-  /// @}
-
- private:
   int stack_size_;
-  std::string name_;
-  std::vector<std::unique_ptr<Node>> nodes_;
-  std::vector<Var*> params_;  ///< The locals include parameter.
+  Prototype prototype_;
+  std::vector<std::unique_ptr<Node>> body_;
   std::deque<std::unique_ptr<Var>> locals_;
 };
 
@@ -236,9 +188,7 @@ class Program {
  public:
   Program() = default;
   explicit Program(std::vector<std::unique_ptr<Function>> other)
-      : funcs_(std::move(other)) {
-    update_offset();
-  }
+      : funcs_(std::move(other)) {}
 
   void accept(AstVisitor& visitor, AstContext& context) {
     for (auto& func : funcs_) {
@@ -246,13 +196,19 @@ class Program {
     }
   }
 
- private:
-  void update_offset() {
-    for (auto& func : funcs_) {
-      func->update_offset();
-    }
-  }
+  /// @name Function iterations.
+  /// @{
 
+  /// @brief
+  /// @return
+  auto func_begin() { return funcs_.begin(); }
+  auto func_begin() const { return funcs_.begin(); }
+  auto func_end() { return funcs_.end(); }
+  auto func_end() const { return funcs_.end(); }
+
+  /// @}
+
+ private:
   std::vector<std::unique_ptr<Function>> funcs_;
 };
 

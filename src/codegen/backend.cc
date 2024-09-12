@@ -44,6 +44,9 @@ void Backend::visit_node(Node* node, AstContext& context) {
   auto kind = node->kind;
 
   switch (kind) {
+    case NodeKind::kEmpty:
+      return;
+
     case NodeKind::kNum:
       std::cout << "  push " << node->val << '\n';
       return;
@@ -275,6 +278,10 @@ void Backend::gen_addr(Node* node, AstContext& context) {
     case NodeKind::kDeref:
       visit_node(node->lhs.get(), context);
       return;
+
+    default:
+      // TODO(gc):
+      break;
   }
 
   CHIBICPP_THROW_ERROR("Not an lvalue");
