@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cassert>
 #include <map>
 #include <memory>
@@ -175,15 +176,15 @@ class ArrayType : public Type {
   ///
   /// \param size Array size.
   /// \param base Base type.
-  ArrayType(int size, Type* base) : Type(kArray, base), size_(size) {}
+  ArrayType(size_t size, Type* base) : Type(kArray, base), size_(size) {}
 
   /// \brief Get array size.
   ///
   /// \return Array size.
-  int size() const { return size_; }
+  size_t size() const { return size_; }
 
  private:
-  int size_;
+  size_t size_;
 };
 
 struct Field {
@@ -218,38 +219,73 @@ class TypeMgr {
   /// \return A pointer to the primitive `Type`.
   static Type* get_primitive(int kind) {
     assert(kind & kPrimitive);
+
     auto& ty_mgr = instance();
     auto& primitive_type_info = ty_mgr.primitive_type_info_;
     auto iter = primitive_type_info.find(kind);
+
     assert(iter != primitive_type_info.end());
 
     return iter->second.get();
   }
 
-  /// \brief Retrieve a pointer type for the specified base type.
+  /// \brief Get a pointer type for the specified `base` type.
   ///
-  /// For example:
+  /// For example, we could get a `int*` type through:
   /// @code
   /// auto int_type = TypeMgr::get_primitive(kInt);
   /// auto ptr_to_int_type = TypeMgr::get_pointer(int_type);
   /// @endcode
-  /// In this way, we could get a `int*` type.
   ///
-  /// \param base A pointer to base type.
-  /// @return A pointer to the pointer `Type` based on the base type.
+  /// \param base Base type.
+  /// \return A `pointer` type based on the `base` type.
   static Type* get_pointer(Type* base) {
     assert(base);
 
-    // TODO(gc): do we need to check the base has existed in this manager?
     auto& ty_mgr = instance();
     auto& pointer_type_info = ty_mgr.pointer_type_info_;
-    auto iter = pointer_type_info.find(base);
+    auto iter =
+        std::find_if(pointer_type_info.begin(), pointer_type_info.end(),
+                     [base](auto const& uptr) { return uptr->base() == base; });
 
-    if (iter == pointer_type_info.end()) {
-      pointer_type_info[base] = std::make_unique<Type>(kPointer, base);
+    if (iter != pointer_type_info.end()) {
+      return iter->get();
     }
 
-    return pointer_type_info[base].get();
+    pointer_type_info.push_back(std::make_unique<Type>(kPointer, base));
+
+    return pointer_type_info.back().get();
+  }
+
+  /// \brief Get an array type.
+  ///
+  /// For example, we could get `int[8]` type through:
+  /// @code
+  /// auto int_type = TypeMgr::get_primitive(kInt);
+  /// auto array_type = TypeMgr::get_array(8, int_type);
+  /// @endcode
+  ///
+  /// \param size Array size.
+  /// \param base Base type.
+  /// \return An `array` type based on the `base` type.
+  static Type* get_array(size_t size, Type* base) {
+    assert(base);
+
+    auto& ty_mgr = instance();
+    auto& array_type_info = ty_mgr.array_type_info_;
+    auto iter =
+        std::find_if(array_type_info.begin(), array_type_info.end(),
+                     [size, base](auto const& uptr) {
+                       return uptr->size() == size && uptr->base() == base;
+                     });
+
+    if (iter != array_type_info.end()) {
+      return iter->get();
+    }
+
+    array_type_info.push_back(std::make_unique<ArrayType>(size, base));
+
+    return array_type_info.back().get();
   }
 
   static Type* get_aggregate() {
@@ -317,7 +353,8 @@ class TypeMgr {
   }
 
   std::map<int, std::unique_ptr<Type>> primitive_type_info_;
-  std::map<Type*, std::unique_ptr<Type>> pointer_type_info_;
+  std::vector<std::unique_ptr<Type>> pointer_type_info_;
+  std::vector<std::unique_ptr<ArrayType>> array_type_info_;
   std::map<std::string, std::unique_ptr<Type>> aggregate_type_info_;
 };
 
