@@ -366,6 +366,7 @@ std::unique_ptr<Node> Parser::parse_declaration() {
 }
 
 /// primary ::= "(" expr ")"
+///           | "sizeof" unary
 ///           | ident func-args?
 ///           | num
 /// args    ::= "(" ")"
@@ -378,6 +379,13 @@ std::unique_ptr<Node> Parser::parse_primary() {
   }
 
   Token token;
+
+  if (lexer_.try_consume("sizeof")) {
+    auto node = parse_unary();
+    add_type(node.get());
+
+    return make_a_number(node->type->size_in_bytes());
+  }
 
   if (lexer_.try_consume_identifier(token)) {
     // Check function call.
