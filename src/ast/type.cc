@@ -58,12 +58,18 @@ void add_type(Node* node) {
       return;
 
     case NodeKind::kAddr:
-      node->type = TypeMgr::get_pointer(node->lhs->type);
+      // TODO(gc): `int a[8]; int* b = &a`.
+      // This code will not work in C++ but work in C.
+      if (node->lhs->type->is_array()) {
+        node->type = TypeMgr::get_pointer(node->lhs->type->base());
+      } else {
+        node->type = TypeMgr::get_pointer(node->lhs->type);
+      }
 
       return;
 
     case NodeKind::kDeref:
-      if (!node->lhs->type->is_pointer()) {
+      if (!node->lhs->type->base()) {
         CHIBICPP_THROW_ERROR("Deference on non-pointer type");
       }
 

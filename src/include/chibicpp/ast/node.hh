@@ -171,7 +171,7 @@ class Function {
     int offset = 0;
 
     for (auto& var : locals_) {
-      offset += 8;
+      offset += var->type->size_in_bytes();
       var->offset = offset;
     }
 

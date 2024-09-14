@@ -15,6 +15,7 @@ class Backend : public AstVisitor {
 
  private:
   void gen_addr(Node* node, AstContext& context);
+  void gen_lval(Node* node, AstContext& context);
   void load();
   void store();
 

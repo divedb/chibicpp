@@ -50,6 +50,7 @@ class Parser {
   std::unique_ptr<Node> read_expr_stmt();
   std::unique_ptr<Node> parse_declaration();
 
+  Type* parse_type_suffix(Type* base);
   Type* parse_basetype();
   Var* parse_func_param();
 

@@ -324,13 +324,14 @@ std::unique_ptr<Node> Parser::parse_unary() {
   return parse_primary();
 }
 
-/// \brief declaration ::= basetype ident ("=" expr) ";"
+/// \brief declaration ::= basetype ident ("[" num "]")* ("=" expr) ";"
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_declaration() {
   Token identifier;
   Type* type = parse_basetype();
   lexer_.expect_identider(identifier);
+  type = parse_type_suffix(type);
   Var* var = get_or_create_var(identifier, type);
 
   if (lexer_.try_consume(";")) {
@@ -384,6 +385,18 @@ std::unique_ptr<Node> Parser::parse_primary() {
   return make_a_number(token.as_i64());
 }
 
+Type* Parser::parse_type_suffix(Type* base) {
+  if (!lexer_.try_consume("[")) {
+    return base;
+  }
+
+  Token num;
+  lexer_.expect_number(num);
+  lexer_.expect("]");
+
+  return TypeMgr::get_array(num.as_i64(), base);
+}
+
 /// \brief basetype ::= "int" "*"*
 ///
 /// \return
@@ -424,6 +437,7 @@ Var* Parser::parse_func_param() {
   Token token;
   Type* type = parse_basetype();
   lexer_.expect_identider(token);
+  type = parse_type_suffix(type);
 
   return get_or_create_var(token, type);
 }

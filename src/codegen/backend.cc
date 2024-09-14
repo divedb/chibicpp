@@ -59,12 +59,16 @@ void Backend::visit_node(Node* node, AstContext& context) {
 
     case NodeKind::kVar:
       gen_addr(node, context);
-      load();
+
+      // Array doesn't need to load the value.
+      if (!node->type->is_array()) {
+        load();
+      }
 
       return;
 
     case NodeKind::kAssign:
-      gen_addr(node->lhs.get(), context);
+      gen_lval(node->lhs.get(), context);
       visit_node(node->rhs.get(), context);
       store();
       return;
@@ -75,7 +79,11 @@ void Backend::visit_node(Node* node, AstContext& context) {
 
     case NodeKind::kDeref:
       visit_node(node->lhs.get(), context);
-      load();
+
+      if (!node->type->is_array()) {
+        load();
+      }
+
       return;
 
     case NodeKind::kIf: {
@@ -206,7 +214,8 @@ void Backend::visit_node(Node* node, AstContext& context) {
       break;
 
     case NodeKind::kPtrAdd:
-      std::cout << "  imul rdi, 8\n";
+      std::cout << "  imul rdi, " << node->type->base()->size_in_bytes()
+                << '\n';
       std::cout << "  add rax, rdi\n";
       break;
 
@@ -215,14 +224,16 @@ void Backend::visit_node(Node* node, AstContext& context) {
       break;
 
     case NodeKind::kPtrSub:
-      std::cout << "  imul rdi, 8\n";
+      std::cout << "  imul rdi, " << node->type->base()->size_in_bytes()
+                << '\n';
       std::cout << "  sub rax, rdi\n";
       break;
 
     case NodeKind::kPtrDiff:
       std::cout << "  sub rax, rdi\n";
       std::cout << "  cqo\n";
-      std::cout << "  mov rdi, 8\n";
+      std::cout << "  mov rdi, " << node->lhs->type->base()->size_in_bytes()
+                << '\n';
       std::cout << "  idiv rdi\n";
       break;
 
@@ -263,6 +274,14 @@ void Backend::visit_node(Node* node, AstContext& context) {
   }
 
   std::cout << "  push rax\n";
+}
+
+void Backend::gen_lval(Node* node, AstContext& context) {
+  if (node->type->is_array()) {
+    CHIBICPP_THROW_ERROR("Not a lvalue.");
+  }
+
+  gen_addr(node, context);
 }
 
 /// \brief Pushes the given node's address to the stack.

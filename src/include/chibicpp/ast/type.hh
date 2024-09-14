@@ -4,6 +4,7 @@
 #include <cassert>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -72,46 +73,49 @@ struct Type {
   /// \param base Base type and default is nullptr.
   Type(int kind, Type* base = nullptr) : kind_(kind), base_(base) {}
 
-  /// \brief Construct a customer type from the specified parameters.
-  ///
-  /// Example usage:
-  /// @code
-  /// struct Student { int age; };
-  /// Type s("Student");
-  /// @endcode
-  ///
-  /// \param name Type name.
-  /// \param base Base type.
-  Type(std::string const& name) : kind_(TypeKind::kStruct), name_(name) {}
+  ~Type() = default;
 
   ///@}
 
   /// @name Type kind.
   /// @{
 
-  /// \brief Check this type is a `char`.
+  /// \brief Check type is a `char`.
   ///
   /// \return `true` if type is `char`, otherwise `false`.
   bool is_char() const { return kind_ & kChar; }
 
-  /// \brief Check this type is an integer.
+  /// \brief Check type is an integer.
   ///
   /// Note: This type must exactly be `int`.
   ///
   /// \return `true` if type is `int`, otherwise `false`.
   bool is_integer() const { return kind_ & kInt; }
 
-  /// \brief Check this type is a `float`.
+  /// \brief Check type is a `float`.
   ///
   /// \return `true` if type is `float`, otherwise `false`.
   bool is_float() const { return kind_ & kFloat; }
 
-  /// \brief Check this type is a `double`.
+  /// \brief Check type is a `double`.
   ///
   /// \return `true` if type is `double`, otherwise `false`.
   bool is_double() const { return kind_ & kDouble; }
 
+  /// \brief Check type is a `pointer`.
+  ///
+  /// \return `true` if type is `pointer`, otherwise `false`.
   bool is_pointer() const { return kind_ & kPointer; }
+
+  /// \brief Check type is an `array`.
+  ///
+  /// \return `true` if type is `array`, otherwise `false`.
+  bool is_array() const { return kind_ & kArray; }
+
+  /// \brief Check type is a `struct`.
+  ///
+  /// \return `true` if type is `struct`, otherwise `false`.
+  bool is_struct() const { return kind_ & kStruct; }
 
   /// @}
 
@@ -145,8 +149,62 @@ struct Type {
 
   /// @}
 
-  std::string name() const { return name_; }
+  /// \brief Get the size of this type in bytes.
+  ///
+  /// Type of `array` and `struct` must override this method.
+  ///
+  /// \return Size in bytes.
+  virtual size_t size_in_bytes() const {
+    // Order matters.
+    // warning: kind_ & (kLong | kDouble)
+    if ((kind_ & kLong) && (kind_ & kDouble)) {
+      return sizeof(long double);
+    }
+
+    if (kind_ & kDouble) {
+      return sizeof(double);
+    }
+
+    if (kind_ & kFloat) {
+      return sizeof(float);
+    }
+
+    if (kind_ & kLongLong) {
+      return sizeof(long long);
+    }
+
+    if (kind_ & kLong) {
+      return sizeof(long);
+    }
+
+    if (kind_ & kInt) {
+      // TODO(gc): need to return `sizeof(int)`.
+      return 8;
+    }
+
+    if (kind_ & kShort) {
+      return sizeof(short);
+    }
+
+    if (kind_ & kChar) {
+      return sizeof(char);
+    }
+
+    if (kind_ & kPointer) {
+      return sizeof(void*);
+    }
+
+    // We can't determine the size of array and struct.
+    __builtin_unreachable();
+
+    return 0;
+  }
+
   int kind() const { return kind_; }
+
+  /// \brief Get base type.
+  ///
+  /// \return Base type.
   Type* base() const { return base_; }
   Type* alias() const { return alias_; }
 
@@ -165,7 +223,6 @@ struct Type {
   int kind_;
   Type* base_{};
   Type* alias_{};  ///< Typedef
-  std::string name_;
 };
 
 class ArrayType : public Type {
@@ -174,17 +231,21 @@ class ArrayType : public Type {
   ///
   /// TODO(gc): give an example for 2D array.
   ///
-  /// \param size Array size.
+  /// \param size Number of elements in array.
   /// \param base Base type.
-  ArrayType(size_t size, Type* base) : Type(kArray, base), size_(size) {}
+  ArrayType(size_t length, Type* base) : Type(kArray, base), length_(length) {}
 
-  /// \brief Get array size.
+  /// \brief Get number of elements in this array.
   ///
-  /// \return Array size.
-  size_t size() const { return size_; }
+  /// \return Number of elements.
+  size_t length() const { return length_; }
+
+  size_t size_in_bytes() const override {
+    return length() * base()->size_in_bytes();
+  }
 
  private:
-  size_t size_;
+  size_t length_;
 };
 
 struct Field {
@@ -195,9 +256,21 @@ struct Field {
 class StructType : public Type {
  public:
   StructType(std::string const& name, std::vector<Field> const& field_types)
-      : Type(name), field_types_(field_types) {}
+      : Type(kStruct, /*base*/ nullptr),
+        name_(name),
+        field_types_(field_types) {}
+
+  std::string name() const { return name_; }
+
+  size_t size_in_bytes() const override {
+    return std::accumulate(field_types_.begin(), field_types_.end(), 0,
+                           [](size_t init, auto const& field) {
+                             return init + field.type->size_in_bytes();
+                           });
+  }
 
  private:
+  std::string name_;
   std::vector<Field> field_types_;
 };
 
@@ -265,25 +338,25 @@ class TypeMgr {
   /// auto array_type = TypeMgr::get_array(8, int_type);
   /// @endcode
   ///
-  /// \param size Array size.
+  /// \param size Number of elements in array.
   /// \param base Base type.
   /// \return An `array` type based on the `base` type.
-  static Type* get_array(size_t size, Type* base) {
+  static Type* get_array(size_t length, Type* base) {
     assert(base);
 
     auto& ty_mgr = instance();
     auto& array_type_info = ty_mgr.array_type_info_;
     auto iter =
         std::find_if(array_type_info.begin(), array_type_info.end(),
-                     [size, base](auto const& uptr) {
-                       return uptr->size() == size && uptr->base() == base;
+                     [length, base](auto const& uptr) {
+                       return uptr->length() == length && uptr->base() == base;
                      });
 
     if (iter != array_type_info.end()) {
       return iter->get();
     }
 
-    array_type_info.push_back(std::make_unique<ArrayType>(size, base));
+    array_type_info.push_back(std::make_unique<ArrayType>(length, base));
 
     return array_type_info.back().get();
   }
