@@ -393,6 +393,7 @@ Type* Parser::parse_type_suffix(Type* base) {
   Token num;
   lexer_.expect_number(num);
   lexer_.expect("]");
+  base = parse_type_suffix(base);
 
   return TypeMgr::get_array(num.as_i64(), base);
 }

@@ -1,3 +1,4 @@
 .vscode/
 build/
 tmp.*
+simple_git.sh

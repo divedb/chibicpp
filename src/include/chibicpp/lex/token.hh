@@ -57,6 +57,20 @@ enum class TokenKind {
   kEOF,
 };
 
+inline std::string token_kind_to_string(TokenKind kind) {
+  if (kind == TokenKind::kReserved) {
+    return "Keyword or Punctuator";
+  } else if (kind == TokenKind::kIdentifier) {
+    return "Identifier";
+  } else if (kind == TokenKind::kNum) {
+    return "Number";
+  } else if (kind == TokenKind::kEOF) {
+    return "EOF";
+  } else {
+    return "Unknown";
+  }
+}
+
 struct SourceLocation {
   int x_pos{1};
   int y_pos{1};

@@ -345,25 +345,13 @@ class Lexer {
     }
   }
 
-  void expect_number(Token& token) {
-    if (is_eof() || tokens_[idx_].kind() != TokenKind::kNum) {
-      CHIBICPP_THROW_ERROR("Expected a number");
-    }
-
-    token = tokens_[idx_++];
-  }
+  void expect_number(Token& token) { expect(token, TokenKind::kNum); }
 
   /// \brief Expect next token is an identifier. If it is, this token will be
   ///        consumed, otherwise an exception will be thrown.
   ///
   /// \param token
-  void expect_identider(Token& token) {
-    if (is_eof() || tokens_[idx_].kind() != TokenKind::kIdentifier) {
-      CHIBICPP_THROW_ERROR("Expected an identifier");
-    }
-
-    token = tokens_[idx_++];
-  }
+  void expect_identider(Token& token) { expect(token, TokenKind::kIdentifier); }
 
   /* constexpr */ bool is_eof() const { return idx_ >= tokens_.size(); }
 
@@ -373,6 +361,23 @@ class Lexer {
   auto end() const { return tokens_.end(); }
 
  private:
+  void expect(Token& token, TokenKind kind) {
+    if (is_eof() || tokens_[idx_].kind() != kind) {
+      std::string error =
+          "Expect a " + token_kind_to_string(kind) + " but got a ";
+
+      if (is_eof()) {
+        error += "EOF";
+      } else {
+        error += token_kind_to_string(tokens_[idx_].kind());
+      }
+
+      CHIBICPP_THROW_ERROR(error);
+    }
+
+    token = tokens_[idx_++];
+  }
+
   size_t idx_;
   std::vector<Token> tokens_;
 };
