@@ -154,7 +154,7 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     lexer_.expect("(");
 
     if (!lexer_.try_consume(";")) {
-      node->init = read_expr_stmt();
+      node->init = parse_expr_stmt();
       lexer_.expect(";");
     }
 
@@ -164,7 +164,7 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     }
 
     if (!lexer_.try_consume(")")) {
-      node->inc = read_expr_stmt();
+      node->inc = parse_expr_stmt();
       lexer_.expect(")");
     }
 
@@ -192,7 +192,7 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     return parse_declaration();
   }
 
-  auto node = read_expr_stmt();
+  auto node = parse_expr_stmt();
   lexer_.expect(";");
 
   return node;
@@ -301,7 +301,7 @@ std::unique_ptr<Node> Parser::parse_mul() {
 }
 
 /// \brief unary ::= ("+" | "-" | "*" | "&")? unary
-///                | primary
+///                | postfix
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_unary() {
@@ -321,7 +321,24 @@ std::unique_ptr<Node> Parser::parse_unary() {
     return make_a_unary(NodeKind::kDeref, parse_unary());
   }
 
-  return parse_primary();
+  return parse_postfix();
+}
+
+/// \brief postfix ::= primary ("[" expr "]")*
+///
+/// \return
+std::unique_ptr<Node> Parser::parse_postfix() {
+  Token token;
+  auto node = parse_primary();
+
+  while (lexer_.try_consume("[")) {
+    // x[y] is short for *(x+y)
+    auto exp = new_add(std::move(node), parse_expr());
+    lexer_.expect("]");
+    node = make_a_unary(NodeKind::kDeref, std::move(exp));
+  }
+
+  return node;
 }
 
 /// \brief declaration ::= basetype ident ("[" num "]")* ("=" expr) ";"
@@ -430,7 +447,7 @@ Var* Parser::get_or_create_var(Token const& token, Type* type) {
   return locals_.front().get();
 }
 
-std::unique_ptr<Node> Parser::read_expr_stmt() {
+std::unique_ptr<Node> Parser::parse_expr_stmt() {
   return make_a_unary(NodeKind::kExprStmt, parse_expr());
 }
 

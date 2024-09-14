@@ -47,7 +47,8 @@ class Parser {
   std::unique_ptr<Node> parse_add();
   std::unique_ptr<Node> parse_mul();
   std::unique_ptr<Node> parse_unary();
-  std::unique_ptr<Node> read_expr_stmt();
+  std::unique_ptr<Node> parse_postfix();
+  std::unique_ptr<Node> parse_expr_stmt();
   std::unique_ptr<Node> parse_declaration();
 
   Type* parse_type_suffix(Type* base);
