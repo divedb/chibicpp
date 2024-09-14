@@ -16,7 +16,8 @@ namespace chibicpp {
 struct Var {
   std::string name;  ///< Do we shared the memory buffer
   Type* type;        ///< Variable type.
-  int offset;        ///< Offset from RBP.
+  int offset;        ///< Local variable offset from RBP.
+  bool is_local;     ///< Local or global variable.
 };
 
 /// AST node.
@@ -187,8 +188,9 @@ class Function {
 class Program {
  public:
   Program() = default;
-  explicit Program(std::vector<std::unique_ptr<Function>> other)
-      : funcs_(std::move(other)) {}
+  explicit Program(std::deque<std::unique_ptr<Var>> globals,
+                   std::vector<std::unique_ptr<Function>> other)
+      : globals_(std::move(globals)), funcs_(std::move(other)) {}
 
   void accept(AstVisitor& visitor, AstContext& context) {
     for (auto& func : funcs_) {
@@ -196,19 +198,39 @@ class Program {
     }
   }
 
-  /// @name Function iterations.
+  /// \name Iterators.
   /// @{
 
-  /// @brief
-  /// @return
+  /// \brief Returns an iterator to the beginning of the functions container.
+  ///
+  /// \return An iterator to the first element of the `funcs_` container.
   auto func_begin() { return funcs_.begin(); }
   auto func_begin() const { return funcs_.begin(); }
+
+  /// \brief Returns an iterator to the end of the functions container.
+  ///
+  /// \return An iterator to one past the last element of the `funcs_`
+  ///         container.
   auto func_end() { return funcs_.end(); }
   auto func_end() const { return funcs_.end(); }
+
+  /// \brief Returns an iterator to the beginning of the global variables
+  ///        container.
+  /// \return An iterator to the first element of the `globals_` container.
+  auto global_begin() { return globals_.begin(); }
+  auto global_begin() const { return globals_.begin(); }
+
+  /// \brief Returns an iterator to the end of the global variables container.
+  ///
+  /// \return An iterator to one past the last element of the `globals_`
+  ///         container.
+  auto global_end() { return globals_.end(); }
+  auto global_end() const { return globals_.end(); }
 
   /// @}
 
  private:
+  std::deque<std::unique_ptr<Var>> globals_;
   std::vector<std::unique_ptr<Function>> funcs_;
 };
 

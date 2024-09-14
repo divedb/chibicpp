@@ -54,19 +54,22 @@ static std::unique_ptr<Node> new_sub(std::unique_ptr<Node> lhs,
   __builtin_unreachable();
 }
 
-/// \brief program ::= function*
+/// \brief program ::= function | globle variable
 ///
 /// \return
-std::unique_ptr<Program> Parser::program() {
+std::unique_ptr<Program> Parser::parse_program() {
   std::vector<std::unique_ptr<Function>> prog;
 
   while (!lexer_.is_eof()) {
-    locals_.clear();
-    auto func = parse_function();
-    prog.push_back(std::move(func));
+    if (is_function()) {
+      auto func = parse_function();
+      prog.push_back(std::move(func));
+    } else {
+      parse_global_var();
+    }
   }
 
-  return std::make_unique<Program>(std::move(prog));
+  return std::make_unique<Program>(std::move(globals_), std::move(prog));
 }
 
 Function::Prototype Parser::parse_function_prototype() {
@@ -98,6 +101,8 @@ std::vector<std::unique_ptr<Node>> Parser::parse_function_body() {
 ///
 /// @return
 std::unique_ptr<Function> Parser::parse_function() {
+  locals_.clear();
+
   auto proto = parse_function_prototype();
   auto body = parse_function_body();
 
@@ -345,11 +350,11 @@ std::unique_ptr<Node> Parser::parse_postfix() {
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_declaration() {
-  Token identifier;
+  Token ident;
   Type* type = parse_basetype();
-  lexer_.expect_identider(identifier);
+  lexer_.expect_identider(ident);
   type = parse_type_suffix(type);
-  Var* var = get_or_create_var(identifier, type);
+  Var* var = create_local_var(ident.as_str(), type);
 
   if (lexer_.try_consume(";")) {
     return std::make_unique<Node>(NodeKind::kEmpty);
@@ -398,9 +403,12 @@ std::unique_ptr<Node> Parser::parse_primary() {
     }
 
     // Variable.
-    Var* var = get_or_create_var(token);
+    auto const& ident = token.as_str();
+    Var* var = get_var(ident);
 
-    assert(var != nullptr);
+    if (var == nullptr) {
+      CHIBICPP_THROW_ERROR(ident + " is not defined.");
+    }
 
     return make_a_var(var);
   }
@@ -438,21 +446,53 @@ Type* Parser::parse_basetype() {
   return type;
 }
 
-Var* Parser::get_or_create_var(Token const& token, Type* type) {
-  auto const& name = token.as_str();
+inline Var* Parser::create_local_var(std::string const& ident, Type* type) {
+  locals_.push_front(std::make_unique<Var>(ident, type, /*offset*/ 0,
+                                           /*is_local*/ true));
 
-  auto iter =
-      std::find_if(locals_.begin(), locals_.end(),
-                   [&name](auto const& var) { return var->name == name; });
+  return locals_.front().get();
+}
+
+inline Var* Parser::create_global_var(std::string const& ident, Type* type) {
+  globals_.push_front(std::make_unique<Var>(ident, type, /*offset*/ 0,
+                                            /*is_local*/ false));
+
+  return globals_.front().get();
+}
+
+Var* Parser::get_var(std::string const& ident) {
+  auto name_compare = [&ident](auto const& var) { return var->name == ident; };
+
+  // Note: order may matter.
+  // The local variable may shadow on global variable.
+
+  // Search in local list.
+  auto iter = std::find_if(locals_.begin(), locals_.end(), name_compare);
 
   if (iter != locals_.end()) {
     return iter->get();
   }
 
-  auto var = std::make_unique<Var>(name, type, /*offset*/ 0);
-  locals_.push_front(std::move(var));
+  // Search in global list.
+  iter = std::find_if(globals_.begin(), globals_.end(), name_compare);
 
-  return locals_.front().get();
+  if (iter != globals_.end()) {
+    return iter->get();
+  }
+
+  return nullptr;
+}
+
+bool Parser::is_function() {
+  lexer_.mark();
+
+  (void)parse_basetype();
+  bool is_func =
+      lexer_.try_consume_identifier(Token::dummy()) && lexer_.try_consume("(");
+
+  lexer_.reset();
+
+  return is_func;
 }
 
 std::unique_ptr<Node> Parser::parse_expr_stmt() {
@@ -460,12 +500,12 @@ std::unique_ptr<Node> Parser::parse_expr_stmt() {
 }
 
 Var* Parser::parse_func_param() {
-  Token token;
+  Token ident;
   Type* type = parse_basetype();
-  lexer_.expect_identider(token);
+  lexer_.expect_identider(ident);
   type = parse_type_suffix(type);
 
-  return get_or_create_var(token, type);
+  return create_local_var(ident.as_str(), type);
 }
 
 /// \brief func-params ::= "(" args ")"
@@ -511,6 +551,16 @@ std::vector<std::unique_ptr<Node>> Parser::parse_func_args() {
   lexer_.expect(")");
 
   return args;
+}
+
+/// @brief global-var ::= basetype ident "("[" num "]")*" ";"
+void Parser::parse_global_var() {
+  Token ident;
+  auto type = parse_basetype();
+  lexer_.expect_identider(ident);
+  type = parse_type_suffix(type);
+  lexer_.expect(";");
+  create_global_var(ident.as_str(), type);
 }
 
 }  // namespace chibicpp

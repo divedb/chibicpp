@@ -15,15 +15,15 @@ class Parser {
  public:
   explicit Parser(Lexer& lexer) : lexer_(lexer) {}
 
-  std::unique_ptr<Program> program();
+  std::unique_ptr<Program> parse_program();
 
  private:
   /// \brief Parse a function prototype.
   ///
   /// For example, the prototype could be `int foo(int a, int b)`.
-  /// @code
+  /// \code
   /// int foo(int a, int b);
-  /// @endcode
+  /// \endcode
   ///
   /// \return
   Function::Prototype parse_function_prototype();
@@ -67,19 +67,38 @@ class Parser {
   /// \brief primary ::= "(" expr ")" | ident | num
   /// \return
   std::unique_ptr<Node> parse_primary();
+  std::vector<std::unique_ptr<Node>> parse_func_args();
+  void parse_global_var();
+
+  /// \name Utility method
+  /// @{
+
+  /// \brief Create local variable withe specified `ident` and `type`.
+  ///
+  /// \param ident The name of the variable.
+  /// \param type The type of the variable.
+  /// \return A pointer to the created variable.
+  Var* create_local_var(std::string const& ident, Type* type);
+  Var* create_global_var(std::string const& ident, Type* type);
 
   /// \brief Try to search for the specified variable during parsing.
   ///
-  /// So far, we have to update the var offset inside main function. Hence the
-  /// node must share same `var` with function locals.
+  /// The variable's lifetime is controlled by `globals_` and `locals_`.
   ///
-  /// \param token A token of type `kVar`.
+  /// \param ident The name of the variable.
   /// \return A pointer to `Var` if it exists, otherwise NULL.
-  Var* get_or_create_var(Token const& token, Type* type = nullptr);
+  Var* get_var(std::string const& ident);
 
-  std::vector<std::unique_ptr<Node>> parse_func_args();
+  /// \brief Determine whether the next top-level item is a function or a global
+  ///        variable by looking ahead input tokens.
+  ///
+  /// \return `true` if it's a function, otherwise `false`.
+  bool is_function();
+
+  /// @}
 
   Lexer& lexer_;
+  std::deque<std::unique_ptr<Var>> globals_;
   std::deque<std::unique_ptr<Var>> locals_;
 };
 

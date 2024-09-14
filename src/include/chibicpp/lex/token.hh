@@ -76,13 +76,23 @@ struct SourceLocation {
   int y_pos{1};
 };
 
-struct Token {
+class Token {
  public:
+  /// @brief Get a dummy token.
+  ///
+  /// @return A dummy token type of EOF.
+  static Token& dummy() {
+    static Token token;
+
+    return token;
+  }
+
   /// @name
   /// Constructors.
 
   /// @{
 
+  /// @brief Construct a EOF token.
   Token() : kind_(TokenKind::kEOF) {}
 
   explicit Token(SourceLocation location) : Token(TokenKind::kEOF, location) {}

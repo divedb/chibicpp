@@ -14,6 +14,8 @@ class Backend : public AstVisitor {
   virtual void visit_node(Node* node, AstContext& context) override;
 
  private:
+  void emit_global(Program* prog);
+  void emit_text(Program* prog, AstContext& context);
   void gen_addr(Node* node, AstContext& context);
   void gen_lval(Node* node, AstContext& context);
   void load();

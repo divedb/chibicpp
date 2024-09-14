@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
   // Parse program.
   Lexer lexer(argv[1], std::strlen(argv[1]));
   Parser parser(lexer);
-  auto prog = parser.program();
+  auto prog = parser.parse_program();
 
   // for (auto iter = prog->func_begin(); iter != prog->func_end(); iter++) {
   //   (*iter)->dump_var_with_typeinfo(std::cout);

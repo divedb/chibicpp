@@ -10,7 +10,9 @@ namespace chibicpp {
 
 void Backend::visit_program(Program* prog, AstContext& context) {
   std::cout << ".intel_syntax noprefix\n";
-  prog->accept(*this, context);
+
+  emit_global(prog);
+  emit_text(prog, context);
 }
 
 void Backend::visit_function(Function* func, AstContext& context) {
@@ -284,15 +286,39 @@ void Backend::gen_lval(Node* node, AstContext& context) {
   gen_addr(node, context);
 }
 
+void Backend::emit_global(Program* prog) {
+  std::cout << ".data\n";
+
+  for (auto iter = prog->global_begin(); iter != prog->global_end(); iter++) {
+    auto var = iter->get();
+    std::cout << var->name << ":\n";
+    std::cout << "  .zero " << var->type->size_in_bytes() << '\n';
+  }
+}
+
+void Backend::emit_text(Program* prog, AstContext& context) {
+  std::cout << ".text\n";
+
+  prog->accept(*this, context);
+}
+
 /// \brief Pushes the given node's address to the stack.
 ///
 /// \param node
 void Backend::gen_addr(Node* node, AstContext& context) {
   switch (node->kind) {
-    case NodeKind::kVar:
-      std::cout << "  lea rax, [rbp-" << node->var->offset << "]\n";
-      std::cout << "  push rax\n";
+    case NodeKind::kVar: {
+      auto var = node->var;
+
+      if (var->is_local) {
+        std::cout << "  lea rax, [rbp-" << node->var->offset << "]\n";
+        std::cout << "  push rax\n";
+      } else {
+        std::cout << "  push offset " << var->name << '\n';
+      }
+
       return;
+    }
 
     case NodeKind::kDeref:
       visit_node(node->lhs.get(), context);

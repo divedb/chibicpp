@@ -273,12 +273,33 @@ class Tokenizer {
 ///        buffer.
 class Lexer {
  public:
-  explicit Lexer(char const* content, size_t size) : idx_(0) {
+  static constexpr size_t kInvalidMark = static_cast<size_t>(-1);
+
+  explicit Lexer(char const* content, size_t size)
+      : idx_(0), mark_(kInvalidMark) {
     Tokenizer tok(content, size);
 
     while (!tok.is_eof()) {
       tokens_.push_back(tok.next());
     }
+  }
+
+  /// \brief Mark the current index position for future resetting.
+  ///
+  /// Saves the current index (`idx_`) to `mark_`, allowing the position
+  /// to be restored later by calling `reset()`.
+  void mark() { mark_ = idx_; }
+
+  /// \brief Reset the index to the previously marked position. If no valid mark
+  ///        has been set, it throws an error.
+  ///
+  /// \throws Error if no mark has been set (mark_ is equal to kInvalidMark).
+  void reset() {
+    if (mark_ == kInvalidMark) {
+      CHIBICPP_THROW_ERROR("Invalid mark.");
+    }
+
+    idx_ = mark_;
   }
 
   bool try_peek(char const* op, Token& out_token) {
@@ -379,6 +400,7 @@ class Lexer {
   }
 
   size_t idx_;
+  size_t mark_;
   std::vector<Token> tokens_;
 };
 
