@@ -62,6 +62,24 @@ enum TypeModifier : int {
   kLongLong = 0x1000
 };
 
+/// \brief Combines multiple enum flags using bitwise OR operation.
+///
+/// This function takes any number of enum values and performs a bitwise OR
+/// operation on them. Each argument is first converted to an integer before
+/// combining. This is useful for aggregating multiple flags into a single
+/// result, especially when dealing with bitmask operations.
+///
+/// \tparam Args The types of the arguments. Each argument should be an enum
+///         value that can be cast to an integer.
+/// \param args The enum values to be combined. They are combined using
+///             bitwise OR operation.
+/// \return The result of combining all the provided enum values with bitwise
+///         OR, represented as an integer.
+template <typename... Args>
+int bitwise_or_enum(Args... args) {
+  return (... | static_cast<int>(args));
+}
+
 struct Type {
  public:
   /// @name Constructors
@@ -87,10 +105,10 @@ struct Type {
 
   /// \brief Check type is an integer.
   ///
-  /// Note: This type must exactly be `int`.
-  ///
   /// \return `true` if type is `int`, otherwise `false`.
-  bool is_integer() const { return kind_ & kInt; }
+  bool is_integer() const {
+    return kind_ & bitwise_or_enum(kChar, kShort, kInt, kLong, kLongLong);
+  }
 
   /// \brief Check type is a `float`.
   ///
@@ -379,15 +397,12 @@ class TypeMgr {
 
   /// \brief Default constructor. Initialize with primitive types.
   TypeMgr() {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-enum-enum-conversion"
-
 #define INT_INITIALIZER(...) \
   std::initializer_list<int> { __VA_ARGS__ }
 
     // char, signed char, unsigned char
-    for (auto key :
-         INT_INITIALIZER(kChar, kChar | kSigned, kChar | kUnsigned)) {
+    for (auto key : INT_INITIALIZER(kChar, bitwise_or_enum(kChar, kSigned),
+                                    bitwise_or_enum(kChar, kUnsigned))) {
       primitive_type_info_[key] = std::make_unique<Type>(key);
     }
 
@@ -402,27 +417,28 @@ class TypeMgr {
     // unsigned long long,
     // unsigned long long int
     for (auto k1 : INT_INITIALIZER(kShort, kLong, kLongLong)) {
-      for (auto k2 : INT_INITIALIZER(k1, kInt, kSigned, kSigned | kInt,
-                                     kUnsigned, kUnsigned | kInt)) {
+      for (auto k2 :
+           INT_INITIALIZER(k1, kInt, kSigned, bitwise_or_enum(kSigned, kInt),
+                           kUnsigned, bitwise_or_enum(kUnsigned, kInt))) {
         auto key = k2 | k1;
         primitive_type_info_[key] = std::make_unique<Type>(key);
       }
     }
 
     // int, signed, signed int, unsigned, unsigned int
-    for (auto key : INT_INITIALIZER(kInt, kSigned, kSigned | kInt, kUnsigned,
-                                    kUnsigned | kInt)) {
+    for (auto key :
+         INT_INITIALIZER(kInt, kSigned, bitwise_or_enum(kSigned, kInt),
+                         kUnsigned, bitwise_or_enum(kUnsigned, kInt))) {
       primitive_type_info_[key] = std::make_unique<Type>(key);
     }
 
     // float, double, long double
-    for (auto key : INT_INITIALIZER(kFloat, kDouble, kDouble | kLong)) {
+    for (auto key :
+         INT_INITIALIZER(kFloat, kDouble, bitwise_or_enum(kDouble, kLong))) {
       primitive_type_info_[key] = std::make_unique<Type>(key);
     }
 
 #undef INT_INITIALIZER
-
-#pragma GCC diagnostic pop
   }
 
   std::map<int, std::unique_ptr<Type>> primitive_type_info_;

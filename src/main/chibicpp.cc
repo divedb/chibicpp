@@ -23,13 +23,9 @@ int main(int argc, char** argv) {
   Parser parser(lexer);
   auto prog = parser.parse_program();
 
-  // for (auto iter = prog->func_begin(); iter != prog->func_end(); iter++) {
-  //   (*iter)->dump_var_with_typeinfo(std::cout);
-  // }
-
   // Update function local variable offset and generate code.
-  Backend codegen;
   AstContext context;
+  Backend codegen(std::cout);
   codegen.visit_program(prog.get(), context);
 
   return 0;

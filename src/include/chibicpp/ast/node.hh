@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cassert>
-#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
@@ -110,12 +109,24 @@ class Function {
   /// \param body The function body.
   /// \param locals Local variables within the function.
   Function(Prototype const& prototype, std::vector<std::unique_ptr<Node>> body,
-           std::deque<std::unique_ptr<Var>> locals)
+           std::vector<std::unique_ptr<Var>> locals)
       : stack_size_(0),
         prototype_(prototype),
         body_(std::move(body)),
         locals_(std::move(locals)) {
     update_offset();
+  }
+
+  void accept(AstVisitor& visitor, AstContext& context) {
+    auto& params = prototype_.params;
+
+    for (auto i = 0; i < static_cast<int>(params.size()); ++i) {
+      visitor.visit_function_params(params[i], i, context);
+    }
+
+    for (auto& node : body_) {
+      visitor.visit_function_body(node.get(), context);
+    }
   }
 
   /// \brief Get the stack size required for this function.
@@ -129,31 +140,39 @@ class Function {
   /// \return Stack size.
   int stack_size() const { return stack_size_; }
 
-  void accept(AstVisitor& visitor, AstContext& context) {
-    /// We need to update the AST context to reflect that we are currently
-    /// visiting this function.
-    context.func = this;
-
-    for (auto& node : body_) {
-      visitor.visit_node(node.get(), context);
-    }
-  }
-
   /// \brief Get function name.
   ///
   /// \return
   std::string name() const { return prototype_.fname; }
 
-  /// @name Parameter Iterators
+  /// @name Iterators
   /// @{
 
-  /// \brief
+  /// \brief Returns an iterator to the beginning of the parameter list.
   ///
-  /// \return
+  /// \return An iterator pointing to the first element of the parameters.
   auto param_begin() { return prototype_.params.begin(); }
   auto param_begin() const { return prototype_.params.begin(); }
+
+  /// \brief Returns an iterator to the end of the parameter list.
+  ///
+  /// \return An iterator pointing to the end (past-the-last) element of the
+  ///         parameters.
   auto param_end() { return prototype_.params.end(); }
   auto param_end() const { return prototype_.params.end(); }
+
+  /// \brief Returns an iterator to the beginning of the function body.
+  ///
+  /// \return An iterator pointing to the first element of the function body.
+  auto body_begin() { return body_.begin(); }
+  auto body_begin() const { return body_.begin(); }
+
+  /// \brief Returns an iterator to the end of the function body.
+  ///
+  /// \return An iterator pointing to the end (past-the-last) element of the
+  ///         function body.
+  auto body_end() { return body_.end(); }
+  auto body_end() const { return body_.end(); }
 
   /// @}
 
@@ -171,9 +190,12 @@ class Function {
   void update_offset() {
     int offset = 0;
 
-    for (auto& var : locals_) {
-      offset += var->type->size_in_bytes();
-      var->offset = offset;
+    // TODO(gc): Investigate why we place variables that are used far away
+    // from their declaration onto the upper stack. This could affect
+    // memory layout and access patterns?
+    for (auto it = locals_.rbegin(); it != locals_.rend(); ++it) {
+      offset += it->get()->type->size_in_bytes();
+      it->get()->offset = offset;
     }
 
     stack_size_ = offset;
@@ -182,17 +204,21 @@ class Function {
   int stack_size_;
   Prototype prototype_;
   std::vector<std::unique_ptr<Node>> body_;
-  std::deque<std::unique_ptr<Var>> locals_;
+  std::vector<std::unique_ptr<Var>> locals_;
 };
 
 class Program {
  public:
   Program() = default;
-  explicit Program(std::deque<std::unique_ptr<Var>> globals,
+  explicit Program(std::vector<std::unique_ptr<Var>> globals,
                    std::vector<std::unique_ptr<Function>> other)
       : globals_(std::move(globals)), funcs_(std::move(other)) {}
 
   void accept(AstVisitor& visitor, AstContext& context) {
+    for (auto& var : globals_) {
+      visitor.visit_global(var.get(), context);
+    }
+
     for (auto& func : funcs_) {
       visitor.visit_function(func.get(), context);
     }
@@ -230,7 +256,7 @@ class Program {
   /// @}
 
  private:
-  std::deque<std::unique_ptr<Var>> globals_;
+  std::vector<std::unique_ptr<Var>> globals_;
   std::vector<std::unique_ptr<Function>> funcs_;
 };
 

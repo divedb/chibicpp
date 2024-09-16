@@ -191,9 +191,7 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     return node;
   }
 
-  Token token;
-
-  if (lexer_.try_peek("int", token)) {
+  if (is_typename()) {
     return parse_declaration();
   }
 
@@ -431,13 +429,18 @@ Type* Parser::parse_type_suffix(Type* base) {
   return TypeMgr::get_array(num.as_i64(), base);
 }
 
-/// \brief basetype ::= "int" "*"*
+/// \brief basetype ::= ("char" | "int") "*"*
 ///
 /// \return
 Type* Parser::parse_basetype() {
-  // Support `int` now.
-  lexer_.expect("int");
-  Type* type = TypeMgr::get_primitive(kInt);
+  Type* type;
+
+  if (lexer_.try_consume("char")) {
+    type = TypeMgr::get_primitive(kChar);
+  } else {
+    lexer_.expect("int");
+    type = TypeMgr::get_primitive(kInt);
+  }
 
   while (lexer_.try_consume("*")) {
     type = TypeMgr::get_pointer(type);
@@ -447,17 +450,17 @@ Type* Parser::parse_basetype() {
 }
 
 inline Var* Parser::create_local_var(std::string const& ident, Type* type) {
-  locals_.push_front(std::make_unique<Var>(ident, type, /*offset*/ 0,
-                                           /*is_local*/ true));
+  locals_.push_back(std::make_unique<Var>(ident, type, /*offset*/ 0,
+                                          /*is_local*/ true));
 
-  return locals_.front().get();
+  return locals_.back().get();
 }
 
 inline Var* Parser::create_global_var(std::string const& ident, Type* type) {
-  globals_.push_front(std::make_unique<Var>(ident, type, /*offset*/ 0,
-                                            /*is_local*/ false));
+  globals_.push_back(std::make_unique<Var>(ident, type, /*offset*/ 0,
+                                           /*is_local*/ false));
 
-  return globals_.front().get();
+  return globals_.back().get();
 }
 
 Var* Parser::get_var(std::string const& ident) {
@@ -493,6 +496,14 @@ bool Parser::is_function() {
   lexer_.reset();
 
   return is_func;
+}
+
+bool Parser::is_typename() {
+  static const std::vector<char const*> kTypenames{"char", "int"};
+
+  return std::find_if(kTypenames.begin(), kTypenames.end(), [this](auto key) {
+           return lexer_.try_peek(key, Token::dummy());
+         }) != kTypenames.end();
 }
 
 std::unique_ptr<Node> Parser::parse_expr_stmt() {

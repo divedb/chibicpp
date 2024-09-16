@@ -8,38 +8,67 @@
 
 namespace chibicpp {
 
-void Backend::visit_program(Program* prog, AstContext& context) {
-  std::cout << ".intel_syntax noprefix\n";
+void Backend::visit_global(Var* var, AstContext& context) {
+  // It's fine to define a `.data` section for each global variable.
+  // The assembler will merge them into a single section.
+  stream_ << ".data\n";
+  stream_ << var->name << ":\n";
+  stream_ << "  .zero " << var->type->size_in_bytes() << '\n';
+}
 
-  emit_global(prog);
-  emit_text(prog, context);
+void Backend::visit_program(Program* prog, AstContext& context) {
+  stream_ << ".intel_syntax noprefix\n";
+  prog->accept(*this, context);
+}
+
+/// \brief Push function arguments to the stack.
+///
+/// For example: we need to move rdi register to rbp-8 and move sil register
+/// to rbp-12.
+/// @code
+/// void foo(int a, char c);
+/// @endcode
+///
+/// \param var A pointer to function argument.
+/// \param idx Index of argument.
+void Backend::visit_function_params(Var* var, int idx, AstContext& context) {
+  int sz = var->type->size_in_bytes();
+
+  if (sz == 1) {
+    stream_ << "  mov [rbp-" << var->offset << "], " << kArgReg1[idx] << '\n';
+  } else {
+    assert(sz == 8);
+
+    stream_ << "  mov [rbp-" << var->offset << "], " << kArgReg8[idx] << '\n';
+  }
+}
+
+void Backend::visit_function_body(Node* node, AstContext& context) {
+  visit_node(node, context);
 }
 
 void Backend::visit_function(Function* func, AstContext& context) {
-  auto func_name = func->name();
-  std::cout << ".global " << func_name << '\n';
-  std::cout << func_name << ":\n";
+  // We need to update the AST context to reflect that we are currently
+  // visiting this function.
+  context.func = func;
 
-  /// Prologue.
-  std::cout << "  push rbp\n";
-  std::cout << "  mov rbp, rsp\n";
-  std::cout << "  sub rsp, " << func->stack_size() << '\n';
+  auto fname = func->name();
+  stream_ << ".text\n";
+  stream_ << ".global " << fname << '\n';
+  stream_ << fname << ":\n";
 
-  /// Push arguments to the stack.
-  int i = 0;
-  for (auto iter = func->param_begin(); iter != func->param_end(); iter++) {
-    std::cout << "  mov [rbp-" << (*iter)->offset << "], " << kArgReg[i++]
-              << '\n';
-  }
+  // Prologue.
+  stream_ << "  push rbp\n";
+  stream_ << "  mov rbp, rsp\n";
+  stream_ << "  sub rsp, " << func->stack_size() << '\n';
 
-  /// Emit code.
   func->accept(*this, context);
 
-  /// Epilogue.
-  std::cout << ".L.return." << func_name << ":\n";
-  std::cout << "  mov rsp, rbp\n";
-  std::cout << "  pop rbp\n";
-  std::cout << "  ret\n";
+  // Epilogue.
+  stream_ << ".L.return." << fname << ":\n";
+  stream_ << "  mov rsp, rbp\n";
+  stream_ << "  pop rbp\n";
+  stream_ << "  ret\n";
 }
 
 void Backend::visit_node(Node* node, AstContext& context) {
@@ -50,13 +79,13 @@ void Backend::visit_node(Node* node, AstContext& context) {
       return;
 
     case NodeKind::kNum:
-      std::cout << "  push " << node->val << '\n';
+      stream_ << "  push " << node->val << '\n';
       return;
 
     case NodeKind::kExprStmt:
       visit_node(node->lhs.get(), context);
       /// TODO(gc): why add 8?
-      std::cout << "  add rsp, 8\n";
+      stream_ << "  add rsp, 8\n";
       return;
 
     case NodeKind::kVar:
@@ -64,7 +93,7 @@ void Backend::visit_node(Node* node, AstContext& context) {
 
       // Array doesn't need to load the value.
       if (!node->type->is_array()) {
-        load();
+        load(node->type);
       }
 
       return;
@@ -72,7 +101,7 @@ void Backend::visit_node(Node* node, AstContext& context) {
     case NodeKind::kAssign:
       gen_lval(node->lhs.get(), context);
       visit_node(node->rhs.get(), context);
-      store();
+      store(node->type);
       return;
 
     case NodeKind::kAddr:
@@ -83,7 +112,7 @@ void Backend::visit_node(Node* node, AstContext& context) {
       visit_node(node->lhs.get(), context);
 
       if (!node->type->is_array()) {
-        load();
+        load(node->type);
       }
 
       return;
@@ -94,20 +123,20 @@ void Backend::visit_node(Node* node, AstContext& context) {
       visit_node(node->cond.get(), context);
 
       if (node->els) {
-        std::cout << "  pop rax\n";
-        std::cout << "  cmp rax, 0\n";
-        std::cout << "  je  .L.else." << seq << '\n';
+        stream_ << "  pop rax\n";
+        stream_ << "  cmp rax, 0\n";
+        stream_ << "  je  .L.else." << seq << '\n';
         visit_node(node->then.get(), context);
-        std::cout << "  jmp .L.end." << seq << '\n';
-        std::cout << ".L.else." << seq << ":\n";
+        stream_ << "  jmp .L.end." << seq << '\n';
+        stream_ << ".L.else." << seq << ":\n";
         visit_node(node->els.get(), context);
-        std::cout << ".L.end." << seq << ":\n";
+        stream_ << ".L.end." << seq << ":\n";
       } else {
-        std::cout << "  pop rax\n";
-        std::cout << "  cmp rax, 0\n";
-        std::cout << "  je  .L.end." << seq << '\n';
+        stream_ << "  pop rax\n";
+        stream_ << "  cmp rax, 0\n";
+        stream_ << "  je  .L.end." << seq << '\n';
         visit_node(node->then.get(), context);
-        std::cout << ".L.end." << seq << ":\n";
+        stream_ << ".L.end." << seq << ":\n";
       }
 
       return;
@@ -115,14 +144,14 @@ void Backend::visit_node(Node* node, AstContext& context) {
 
     case NodeKind::kWhile: {
       int seq = label_seq_++;
-      std::cout << ".L.begin." << seq << ":\n";
+      stream_ << ".L.begin." << seq << ":\n";
       visit_node(node->cond.get(), context);
-      std::cout << "  pop rax\n";
-      std::cout << "  cmp rax, 0\n";
-      std::cout << "  je  .L.end." << seq << '\n';
+      stream_ << "  pop rax\n";
+      stream_ << "  cmp rax, 0\n";
+      stream_ << "  je  .L.end." << seq << '\n';
       visit_node(node->then.get(), context);
-      std::cout << "  jmp .L.begin." << seq << '\n';
-      std::cout << ".L.end." << seq << ":\n";
+      stream_ << "  jmp .L.begin." << seq << '\n';
+      stream_ << ".L.end." << seq << ":\n";
 
       return;
     }
@@ -134,13 +163,13 @@ void Backend::visit_node(Node* node, AstContext& context) {
         visit_node(node->init.get(), context);
       }
 
-      std::cout << ".L.begin." << seq << ":\n";
+      stream_ << ".L.begin." << seq << ":\n";
 
       if (node->cond) {
         visit_node(node->cond.get(), context);
-        std::cout << "  pop rax\n";
-        std::cout << "  cmp rax, 0\n";
-        std::cout << "  je  .L.end." << seq << '\n';
+        stream_ << "  pop rax\n";
+        stream_ << "  cmp rax, 0\n";
+        stream_ << "  je  .L.end." << seq << '\n';
       }
 
       visit_node(node->then.get(), context);
@@ -149,8 +178,8 @@ void Backend::visit_node(Node* node, AstContext& context) {
         visit_node(node->inc.get(), context);
       }
 
-      std::cout << "  jmp .L.begin." << seq << '\n';
-      std::cout << ".L.end." << seq << ":\n";
+      stream_ << "  jmp .L.begin." << seq << '\n';
+      stream_ << ".L.end." << seq << ":\n";
 
       return;
     }
@@ -164,13 +193,14 @@ void Backend::visit_node(Node* node, AstContext& context) {
 
     case NodeKind::kFunCall: {
       int nargs = node->args.size();
-
+      // Push the expression value to stack.
       for (auto& arg : node->args) {
         visit_node(arg.get(), context);
       }
 
+      // Pop the value from stack to registers.
       for (int i = nargs - 1; i >= 0; i--) {
-        std::cout << "  pop " << kArgReg[i] << '\n';
+        stream_ << "  pop " << kArgReg8[i] << '\n';
       }
 
       /// We need to align RSP to a 16 byte boundary before
@@ -178,26 +208,26 @@ void Backend::visit_node(Node* node, AstContext& context) {
       /// RAX is set to 0 for variadic function.
       int seq = label_seq_++;
 
-      std::cout << "  mov rax, rsp\n";
-      std::cout << "  and rax, 15\n";
-      std::cout << "  jnz .L.call." << seq << '\n';
-      std::cout << "  mov rax, 0\n";
-      std::cout << "  call " << node->func_name << '\n';
-      std::cout << "  jmp .L.end." << seq << '\n';
-      std::cout << ".L.call." << seq << ":\n";
-      std::cout << "  sub rsp, 8\n";
-      std::cout << "  mov rax, 0\n";
-      std::cout << "  call " << node->func_name << '\n';
-      std::cout << "  add rsp, 8\n";
-      std::cout << ".L.end." << seq << ":\n";
-      std::cout << "  push rax\n";
+      stream_ << "  mov rax, rsp\n";
+      stream_ << "  and rax, 15\n";
+      stream_ << "  jnz .L.call." << seq << '\n';
+      stream_ << "  mov rax, 0\n";
+      stream_ << "  call " << node->func_name << '\n';
+      stream_ << "  jmp .L.end." << seq << '\n';
+      stream_ << ".L.call." << seq << ":\n";
+      stream_ << "  sub rsp, 8\n";
+      stream_ << "  mov rax, 0\n";
+      stream_ << "  call " << node->func_name << '\n';
+      stream_ << "  add rsp, 8\n";
+      stream_ << ".L.end." << seq << ":\n";
+      stream_ << "  push rax\n";
       return;
     }
 
     case NodeKind::kReturn:
       visit_node(node->lhs.get(), context);
-      std::cout << "  pop rax\n";
-      std::cout << "  jmp .L.return." << context.func->name() << '\n';
+      stream_ << "  pop rax\n";
+      stream_ << "  jmp .L.return." << context.func->name() << '\n';
       return;
 
     default:
@@ -207,75 +237,73 @@ void Backend::visit_node(Node* node, AstContext& context) {
   visit_node(node->lhs.get(), context);
   visit_node(node->rhs.get(), context);
 
-  std::cout << "  pop rdi\n";
-  std::cout << "  pop rax\n";
+  stream_ << "  pop rdi\n";
+  stream_ << "  pop rax\n";
 
   switch (node->kind) {
     case NodeKind::kAdd:
-      std::cout << "  add rax, rdi\n";
+      stream_ << "  add rax, rdi\n";
       break;
 
     case NodeKind::kPtrAdd:
-      std::cout << "  imul rdi, " << node->type->base()->size_in_bytes()
-                << '\n';
-      std::cout << "  add rax, rdi\n";
+      stream_ << "  imul rdi, " << node->type->base()->size_in_bytes() << '\n';
+      stream_ << "  add rax, rdi\n";
       break;
 
     case NodeKind::kSub:
-      std::cout << "  sub rax, rdi\n";
+      stream_ << "  sub rax, rdi\n";
       break;
 
     case NodeKind::kPtrSub:
-      std::cout << "  imul rdi, " << node->type->base()->size_in_bytes()
-                << '\n';
-      std::cout << "  sub rax, rdi\n";
+      stream_ << "  imul rdi, " << node->type->base()->size_in_bytes() << '\n';
+      stream_ << "  sub rax, rdi\n";
       break;
 
     case NodeKind::kPtrDiff:
-      std::cout << "  sub rax, rdi\n";
-      std::cout << "  cqo\n";
-      std::cout << "  mov rdi, " << node->lhs->type->base()->size_in_bytes()
-                << '\n';
-      std::cout << "  idiv rdi\n";
+      stream_ << "  sub rax, rdi\n";
+      stream_ << "  cqo\n";
+      stream_ << "  mov rdi, " << node->lhs->type->base()->size_in_bytes()
+              << '\n';
+      stream_ << "  idiv rdi\n";
       break;
 
     case NodeKind::kMul:
-      std::cout << "  imul rax, rdi\n";
+      stream_ << "  imul rax, rdi\n";
       break;
     case NodeKind::kDiv:
-      std::cout << "  cqo\n";
-      std::cout << "  idiv rdi\n";
+      stream_ << "  cqo\n";
+      stream_ << "  idiv rdi\n";
       break;
 
     case NodeKind::kEq:
-      std::cout << "  cmp rax, rdi\n";
-      std::cout << "  sete al\n";
-      std::cout << "  movzb rax, al\n";
+      stream_ << "  cmp rax, rdi\n";
+      stream_ << "  sete al\n";
+      stream_ << "  movzb rax, al\n";
       break;
 
     case NodeKind::kNe:
-      std::cout << "  cmp rax, rdi\n";
-      std::cout << "  setne al\n";
-      std::cout << "  movzb rax, al\n";
+      stream_ << "  cmp rax, rdi\n";
+      stream_ << "  setne al\n";
+      stream_ << "  movzb rax, al\n";
       break;
 
     case NodeKind::kLt:
-      std::cout << "  cmp rax, rdi\n";
-      std::cout << "  setl al\n";
-      std::cout << "  movzb rax, al\n";
+      stream_ << "  cmp rax, rdi\n";
+      stream_ << "  setl al\n";
+      stream_ << "  movzb rax, al\n";
       break;
 
     case NodeKind::kLe:
-      std::cout << "  cmp rax, rdi\n";
-      std::cout << "  setle al\n";
-      std::cout << "  movzb rax, al\n";
+      stream_ << "  cmp rax, rdi\n";
+      stream_ << "  setle al\n";
+      stream_ << "  movzb rax, al\n";
       break;
 
     default:
       assert(false);
   }
 
-  std::cout << "  push rax\n";
+  stream_ << "  push rax\n";
 }
 
 void Backend::gen_lval(Node* node, AstContext& context) {
@@ -284,22 +312,6 @@ void Backend::gen_lval(Node* node, AstContext& context) {
   }
 
   gen_addr(node, context);
-}
-
-void Backend::emit_global(Program* prog) {
-  std::cout << ".data\n";
-
-  for (auto iter = prog->global_begin(); iter != prog->global_end(); iter++) {
-    auto var = iter->get();
-    std::cout << var->name << ":\n";
-    std::cout << "  .zero " << var->type->size_in_bytes() << '\n';
-  }
-}
-
-void Backend::emit_text(Program* prog, AstContext& context) {
-  std::cout << ".text\n";
-
-  prog->accept(*this, context);
 }
 
 /// \brief Pushes the given node's address to the stack.
@@ -311,10 +323,10 @@ void Backend::gen_addr(Node* node, AstContext& context) {
       auto var = node->var;
 
       if (var->is_local) {
-        std::cout << "  lea rax, [rbp-" << node->var->offset << "]\n";
-        std::cout << "  push rax\n";
+        stream_ << "  lea rax, [rbp-" << node->var->offset << "]\n";
+        stream_ << "  push rax\n";
       } else {
-        std::cout << "  push offset " << var->name << '\n';
+        stream_ << "  push offset " << var->name << '\n';
       }
 
       return;
@@ -332,17 +344,29 @@ void Backend::gen_addr(Node* node, AstContext& context) {
   CHIBICPP_THROW_ERROR("Not an lvalue");
 }
 
-void Backend::load() {
-  std::cout << "  pop rax\n";
-  std::cout << "  mov rax, [rax]\n";
-  std::cout << "  push rax\n";
+void Backend::load(Type* type) {
+  stream_ << "  pop rax\n";
+
+  if (type->size_in_bytes() == 1) {
+    stream_ << "  movsx rax, byte ptr [rax]\n";
+  } else {
+    stream_ << "  mov rax, [rax]\n";
+  }
+
+  stream_ << "  push rax\n";
 }
 
-void Backend::store() {
-  std::cout << "  pop rdi\n";
-  std::cout << "  pop rax\n";
-  std::cout << "  mov [rax], rdi\n";
-  std::cout << "  push rdi\n";
+void Backend::store(Type* type) {
+  stream_ << "  pop rdi\n";
+  stream_ << "  pop rax\n";
+
+  if (type->size_in_bytes() == 1) {
+    stream_ << "  mov [rax], dil\n";
+  } else {
+    stream_ << "  mov [rax], rdi\n";
+  }
+
+  stream_ << "  push rdi\n";
 }
 
 }  // namespace chibicpp

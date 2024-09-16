@@ -95,11 +95,13 @@ class Parser {
   /// \return `true` if it's a function, otherwise `false`.
   bool is_function();
 
+  bool is_typename();
+
   /// @}
 
   Lexer& lexer_;
-  std::deque<std::unique_ptr<Var>> globals_;
-  std::deque<std::unique_ptr<Var>> locals_;
+  std::vector<std::unique_ptr<Var>> globals_;
+  std::vector<std::unique_ptr<Var>> locals_;
 };
 
 }  // namespace chibicpp
