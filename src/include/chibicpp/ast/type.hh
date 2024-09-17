@@ -51,15 +51,15 @@ enum TypeKind : int {
   kPointer = 0x10,
   kArray = 0x20,
   kStruct = 0x40,
-  kPrimitive = kChar | kInt | kFloat | kDouble
-};
 
-enum TypeModifier : int {
   kSigned = 0x0100,
   kUnsigned = 0x0200,
   kShort = 0x0400,
   kLong = 0x800,
-  kLongLong = 0x1000
+  kLongLong = 0x1000,
+
+  kPrimitive = kChar | kInt | kFloat | kDouble,
+  kTypeModifier = kSigned | kUnsigned | kShort | kLong | kLongLong,
 };
 
 /// \brief Combines multiple enum flags using bitwise OR operation.
@@ -107,7 +107,7 @@ struct Type {
   ///
   /// \return `true` if type is `int`, otherwise `false`.
   bool is_integer() const {
-    return kind_ & bitwise_or_enum(kChar, kShort, kInt, kLong, kLongLong);
+    return kind_ & (kChar | kShort | kInt | kLong | kLongLong);
   }
 
   /// \brief Check type is a `float`.
@@ -165,6 +165,7 @@ struct Type {
   /// \return `true` if it's `long long`, otherwise `false`.
   bool is_long_long() const { return kind_ & kLongLong; }
 
+  bool is_modifier() const { return kind_ & kTypeModifier; }
   /// @}
 
   /// \brief Get the size of this type in bytes.
@@ -401,8 +402,8 @@ class TypeMgr {
   std::initializer_list<int> { __VA_ARGS__ }
 
     // char, signed char, unsigned char
-    for (auto key : INT_INITIALIZER(kChar, bitwise_or_enum(kChar, kSigned),
-                                    bitwise_or_enum(kChar, kUnsigned))) {
+    for (auto key :
+         INT_INITIALIZER(kChar, kChar | kSigned, kChar | kUnsigned)) {
       primitive_type_info_[key] = std::make_unique<Type>(key);
     }
 
@@ -417,24 +418,21 @@ class TypeMgr {
     // unsigned long long,
     // unsigned long long int
     for (auto k1 : INT_INITIALIZER(kShort, kLong, kLongLong)) {
-      for (auto k2 :
-           INT_INITIALIZER(k1, kInt, kSigned, bitwise_or_enum(kSigned, kInt),
-                           kUnsigned, bitwise_or_enum(kUnsigned, kInt))) {
+      for (auto k2 : INT_INITIALIZER(k1, kInt, kSigned, kSigned | kInt,
+                                     kUnsigned, kUnsigned | kInt)) {
         auto key = k2 | k1;
         primitive_type_info_[key] = std::make_unique<Type>(key);
       }
     }
 
     // int, signed, signed int, unsigned, unsigned int
-    for (auto key :
-         INT_INITIALIZER(kInt, kSigned, bitwise_or_enum(kSigned, kInt),
-                         kUnsigned, bitwise_or_enum(kUnsigned, kInt))) {
+    for (auto key : INT_INITIALIZER(kInt, kSigned, kSigned | kInt, kUnsigned,
+                                    kUnsigned | kInt)) {
       primitive_type_info_[key] = std::make_unique<Type>(key);
     }
 
     // float, double, long double
-    for (auto key :
-         INT_INITIALIZER(kFloat, kDouble, bitwise_or_enum(kDouble, kLong))) {
+    for (auto key : INT_INITIALIZER(kFloat, kDouble, kDouble | kLong)) {
       primitive_type_info_[key] = std::make_unique<Type>(key);
     }
 
