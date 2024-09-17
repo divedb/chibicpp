@@ -52,6 +52,7 @@ namespace chibicpp {
 enum class TokenKind {
   kReserved,    ///< Keywords or punctuators.
   kIdentifier,  ///< Identifiers.
+  kStrLiteral,  ///< String Literal.
   kNum,         ///< Integer literals.
 
   kEOF,

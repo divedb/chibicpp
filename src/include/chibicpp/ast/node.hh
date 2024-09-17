@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,11 +13,46 @@
 
 namespace chibicpp {
 
-struct Var {
-  std::string name;  ///< Do we shared the memory buffer
-  Type* type;        ///< Variable type.
-  int offset;        ///< Local variable offset from RBP.
-  bool is_local;     ///< Local or global variable.
+class Var {
+ public:
+  static constexpr auto kOffsetShift = 1;
+  static constexpr auto kTypeMask = 1;
+
+  /// @name Constructors.
+  /// @{
+
+  /// \brief Construct a local variable.
+  ///
+  /// \param name The name of the variable.
+  /// \param type The type of the variable.
+  /// \param offset The offset of the variable from base pointer.
+  Var(std::string const& name, Type* type, int offset)
+      : name_{name}, type_{type}, offset_{offset << kOffsetShift} {}
+
+  /// \brief Construct a global variable.
+  ///
+  /// \param name The name of the variable.
+  /// \param type The type of the variable.
+  Var(std::string const& name, Type* type)
+      : name_{name}, type_{type}, offset_{kTypeMask} {}
+
+  /// @}
+
+  std::string name() const { return name_; }
+  Type* type() const { return type_; }
+  int offset() const { return offset_ >> kOffsetShift; }
+  bool is_local() const { return !is_global(); }
+  bool is_global() const { return offset_ & kTypeMask; }
+
+  void set_offset(int offset) { offset_ = offset << kOffsetShift; }
+  void set_content(std::string&& content) { content_ = std::move(content); }
+  void set_content(std::string const& content) { content_ = content; }
+
+ private:
+  std::string name_;  ///< Do we shared the memory buffer
+  std::string content_;
+  Type* type_;  ///< Variable type.
+  int offset_;  ///< Local variable offset from RBP.
 };
 
 /// AST node.
@@ -182,7 +218,7 @@ class Function {
   /// corresponding types.
   void dump_var_with_typeinfo(std::ostream& os) const {
     for (auto& var : locals_) {
-      os << var->name << ':' << var->type->to_string() << std::endl;
+      os << var->name() << ':' << var->type()->to_string() << std::endl;
     }
   }
 
@@ -194,8 +230,8 @@ class Function {
     // from their declaration onto the upper stack. This could affect
     // memory layout and access patterns?
     for (auto it = locals_.rbegin(); it != locals_.rend(); ++it) {
-      offset += it->get()->type->size_in_bytes();
-      it->get()->offset = offset;
+      offset += it->get()->type()->size_in_bytes();
+      it->get()->set_offset(offset);
     }
 
     stack_size_ = offset;

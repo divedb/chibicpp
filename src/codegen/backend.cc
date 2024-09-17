@@ -12,8 +12,8 @@ void Backend::visit_global(Var* var, AstContext& context) {
   // It's fine to define a `.data` section for each global variable.
   // The assembler will merge them into a single section.
   stream_ << ".data\n";
-  stream_ << var->name << ":\n";
-  stream_ << "  .zero " << var->type->size_in_bytes() << '\n';
+  stream_ << var->name() << ":\n";
+  stream_ << "  .zero " << var->type()->size_in_bytes() << '\n';
 }
 
 void Backend::visit_program(Program* prog, AstContext& context) {
@@ -32,14 +32,14 @@ void Backend::visit_program(Program* prog, AstContext& context) {
 /// \param var A pointer to function argument.
 /// \param idx Index of argument.
 void Backend::visit_function_params(Var* var, int idx, AstContext& context) {
-  int sz = var->type->size_in_bytes();
+  int sz = var->type()->size_in_bytes();
 
   if (sz == 1) {
-    stream_ << "  mov [rbp-" << var->offset << "], " << kArgReg1[idx] << '\n';
+    stream_ << "  mov [rbp-" << var->offset() << "], " << kArgReg1[idx] << '\n';
   } else {
     assert(sz == 8);
 
-    stream_ << "  mov [rbp-" << var->offset << "], " << kArgReg8[idx] << '\n';
+    stream_ << "  mov [rbp-" << var->offset() << "], " << kArgReg8[idx] << '\n';
   }
 }
 
@@ -322,11 +322,11 @@ void Backend::gen_addr(Node* node, AstContext& context) {
     case NodeKind::kVar: {
       auto var = node->var;
 
-      if (var->is_local) {
-        stream_ << "  lea rax, [rbp-" << node->var->offset << "]\n";
+      if (var->is_local()) {
+        stream_ << "  lea rax, [rbp-" << node->var->offset() << "]\n";
         stream_ << "  push rax\n";
       } else {
-        stream_ << "  push offset " << var->name << '\n';
+        stream_ << "  push offset " << var->name() << '\n';
       }
 
       return;

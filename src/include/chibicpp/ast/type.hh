@@ -26,7 +26,7 @@ namespace chibicpp {
 /// int
 /// signed
 /// signed int
-/// unsigned
+/// unsignedcont_len
 /// unsigned int
 /// long
 /// long int

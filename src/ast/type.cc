@@ -53,7 +53,7 @@ void add_type(Node* node) {
       return;
 
     case NodeKind::kVar:
-      node->type = node->var->type;
+      node->type = node->var->type();
 
       return;
 

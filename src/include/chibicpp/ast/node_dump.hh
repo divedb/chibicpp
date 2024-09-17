@@ -82,7 +82,7 @@ inline void dump(std::ostream& os, Node* node) {
   } else if (kind == NodeKind::kExprStmt) {
     dump(os, node->lhs.get());
   } else if (kind == NodeKind::kVar) {
-    os << node->var->name;
+    os << node->var->name();
   } else {
     assert(false);
   }

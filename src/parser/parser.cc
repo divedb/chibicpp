@@ -450,21 +450,21 @@ Type* Parser::parse_basetype() {
 }
 
 inline Var* Parser::create_local_var(std::string const& ident, Type* type) {
-  locals_.push_back(std::make_unique<Var>(ident, type, /*offset*/ 0,
-                                          /*is_local*/ true));
+  locals_.push_back(std::make_unique<Var>(ident, type, /*offset*/ 0));
 
   return locals_.back().get();
 }
 
 inline Var* Parser::create_global_var(std::string const& ident, Type* type) {
-  globals_.push_back(std::make_unique<Var>(ident, type, /*offset*/ 0,
-                                           /*is_local*/ false));
+  globals_.push_back(std::make_unique<Var>(ident, type));
 
   return globals_.back().get();
 }
 
 Var* Parser::get_var(std::string const& ident) {
-  auto name_compare = [&ident](auto const& var) { return var->name == ident; };
+  auto name_compare = [&ident](auto const& var) {
+    return var->name() == ident;
+  };
 
   // Note: order may matter.
   // The local variable may shadow on global variable.
