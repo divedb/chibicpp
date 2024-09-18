@@ -80,6 +80,9 @@ class Parser {
   /// \return A pointer to the created variable.
   Var* create_local_var(std::string const& ident, Type* type);
   Var* create_global_var(std::string const& ident, Type* type);
+  Var* create_global_var(std::string const& ident, char const* content, int len,
+                         Type* type);
+  std::string new_global_label();
 
   /// \brief Try to search for the specified variable during parsing.
   ///
@@ -99,6 +102,7 @@ class Parser {
 
   /// @}
 
+  int global_label_{};
   Lexer& lexer_;
   std::vector<std::unique_ptr<Var>> globals_;
   std::vector<std::unique_ptr<Var>> locals_;

@@ -2,7 +2,7 @@
 
 namespace chibicpp {
 
-std::vector<std::string> Tokenizer::kKeywords = {
+const std::vector<std::string> Tokenizer::kKeywords = {
     "alignof",
     "auto",
     "break",

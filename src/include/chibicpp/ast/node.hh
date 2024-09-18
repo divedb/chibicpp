@@ -36,23 +36,54 @@ class Var {
   Var(std::string const& name, Type* type)
       : name_{name}, type_{type}, offset_{kTypeMask} {}
 
+  /// \brief Construct a global variable of string literal type.
+  ///
+  /// \param name The name of the variable.
+  /// \param content The content of string literal.
+  /// \param len The length of string literal.
+  /// \param type The type of the variable.
+  Var(std::string const& name, char const* content, int len, Type* type)
+      : name_{name},
+        type_{type},
+        offset_{kTypeMask},
+        literal_{content, static_cast<size_t>(len)} {}
+
   /// @}
 
+  /// \brief Get name of the variable.
+  ///
+  /// \return Name of variable.
   std::string name() const { return name_; }
+
+  /// \brief Get type of the variable.
+  ///
+  /// Note: This is non-owning pointer.
+  ///
+  /// \return Type of variable.
   Type* type() const { return type_; }
+
+  /// \brief Get offset of the variable.
+  ///
+  /// Note: This only make sense when this variable is local.
+  ///
+  /// \return Offset of variable.
   int offset() const { return offset_ >> kOffsetShift; }
+
+  /// \brief Get string literal of the variable.
+  ///
+  /// \return A view of string literal.
+  std::string_view string_literal() const { return literal_; }
+
   bool is_local() const { return !is_global(); }
   bool is_global() const { return offset_ & kTypeMask; }
-
+  bool is_string_literal() const { return is_global() && !literal_.empty(); }
   void set_offset(int offset) { offset_ = offset << kOffsetShift; }
-  void set_content(std::string&& content) { content_ = std::move(content); }
-  void set_content(std::string const& content) { content_ = content; }
 
  private:
-  std::string name_;  ///< Do we shared the memory buffer
-  std::string content_;
-  Type* type_;  ///< Variable type.
-  int offset_;  ///< Local variable offset from RBP.
+  std::string name_;          ///< Do we shared the memory buffer
+  Type* type_;                ///< Variable type.
+  int offset_;                ///< Local variable offset from rbp register.
+  std::string_view literal_;  ///< String literal.
 };
 
 /// AST node.

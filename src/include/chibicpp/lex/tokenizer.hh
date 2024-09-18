@@ -15,12 +15,33 @@ using namespace std::literals;
 
 namespace chibicpp {
 
-static bool is_alpha(int ch) { return std::isalpha(ch) || ch == '_'; }
-static bool is_alnum(int ch) { return is_alpha(ch) || std::isdigit(ch); }
+namespace {
+
+/// \brief Checks if a character is an alphabetic letter or an underscore.
+///
+/// This function determines if the given character is an alphabetic letter
+/// (a-z, A-Z) or an underscore ('_').
+///
+/// \param ch The character to check.
+/// \return `true` if the character is an alphabetic letter or an underscore,
+///         otherwise `false`.
+bool is_alpha(int ch) { return std::isalpha(ch) || ch == '_'; }
+
+/// \brief Checks if a character is alphanumeric or an underscore.
+///
+/// This function determines if the given character is either an alphabetic
+/// letter (a-z, A-Z), a digit (0-9), or an underscore ('_').
+///
+/// \param ch The character to check.
+/// \return `true` if the character is an alphabetic letter, a digit, or an
+///         underscore, otherwise `false`.
+bool is_alnum(int ch) { return is_alpha(ch) || std::isdigit(ch); }
+
+}  // namespace
 
 class Tokenizer {
  public:
-  static std::vector<std::string> kKeywords;
+  static const std::vector<std::string> kKeywords;
 
   explicit Tokenizer(char const* content, size_t size)
       : begin_(content), end_(content + size), pos_(content) {}
@@ -30,56 +51,80 @@ class Tokenizer {
   /// \return Type of `kEOF` token if eof has been reached, otherwise next
   ///         token.
   Token next() {
-    if (!is_eof()) {
-      skip_whitespace();
-
-      return internal_token();
+    if (is_eof()) {
+      return Token::dummy_eof();
     }
 
-    return Token{location_};
+    skip_whitespace();
+
+    return internal_token();
   }
 
   constexpr bool is_eof() const { return pos_ >= end_; }
 
  private:
-  Token internal_token() {
-    if (is_eof()) {
-      return Token{location_};
+  struct LocationGuard {
+    LocationGuard(char const* init_pos, char const** init_ppos,
+                  SourceLocation& init_loc)
+        : pos(init_pos), ppos(init_ppos), location(init_loc) {}
+
+    ~LocationGuard() {
+      auto new_pos = *ppos;
+      auto dist = new_pos - pos;
+      location.x_pos += dist;
     }
 
-    auto old_pos = pos_;
-    auto old_loc = location_;
+    char const* pos;
+    char const** ppos;
+    SourceLocation& location;
+  };
+
+  Token internal_token() {
+    if (is_eof()) {
+      return Token::dummy_eof();
+    }
+
+    LocationGuard guard{pos_, &pos_, location_};
     TokenKind kind = parse_token_kind();
 
     if (kind == TokenKind::kNum) {
-      /// TODO(gc): handle errno if failed to parse
+      // When we reach here, we must encounter some digits.
+      // We may need to handle overflow or underflow.
       char* end_ptr;
-      int64_t v = std::strtol(old_pos, &end_ptr, /*base*/ 10);
+      int64_t v = std::strtol(guard.pos, &end_ptr, /*base*/ 10);
       pos_ = end_ptr;
 
-      return Token{kind, old_loc, v};
+      return Token{kind, guard.location, v};
+    } else if (kind == TokenKind::kStrLiteral) {
+      // We don't need question marks.
+      return Token{kind, guard.location, guard.pos + 1,
+                   static_cast<size_t>(pos_ - guard.pos - 2)};
     } else {
-      return Token{kind, old_loc, old_pos, static_cast<size_t>(pos_ - old_pos)};
+      return Token{kind, guard.location, guard.pos,
+                   static_cast<size_t>(pos_ - guard.pos)};
     }
   }
 
   /// \brief Check if current position starts with a keyword.
   ///
-  /// This function checks if the current position (`pos_`) in the input matches
+  /// This function checks if the current position (`pos`) in the input matches
   /// any of the keywords stored in the `kKeywords` vector.
   ///
+  /// Note: The `max_size` defines the maximum length of the string to be
+  /// compared with the keywords.
+  ///
+  /// \param pos The starting position of the string to compare.
+  /// \param max_size The maximum length of the string to check.
   /// \return The index of the keyword if it exists, otherwise return -1.
-  int index_of_keyword() const {
-    /// Check if it's a keyword.
-    auto iter = std::find_if(
-        kKeywords.begin(), kKeywords.end(), [this](auto const& str) {
-          if (this->available() < str.size()) {
-            return false;
-          }
+  static int index_of_keyword(char const* pos, size_t max_size) {
+    auto iter = std::find_if(kKeywords.begin(), kKeywords.end(),
+                             [pos, max_size](auto const& str) {
+                               if (max_size < str.size()) {
+                                 return false;
+                               }
 
-          return std::equal(str.begin(), str.end(), this->pos_,
-                            this->pos_ + str.size());
-        });
+                               return std::equal(str.begin(), str.end(), pos);
+                             });
 
     if (iter == kKeywords.end()) {
       return -1;
@@ -89,24 +134,34 @@ class Tokenizer {
   }
 
   TokenKind parse_token_kind() {
-    auto old_pos = pos_;
     char ch = *pos_++;
-    TokenKind kind = TokenKind::kEOF;
 
     if (std::isdigit(ch)) {
-      kind = TokenKind::kNum;
+      return TokenKind::kNum;
+    } else if (ch == '"') {
+      // Note: The order of `else if` is important, as '"' is considered a
+      // punctuator.
+      // TODO(gc): Should the string be restricted to a single line?
+      while (!is_eof() && *pos_ != '"') {
+        pos_++;
+      }
 
+      if (is_eof()) {
+        CHIBICPP_THROW_ERROR("Unclosed string literal", " @ ", location_);
+      }
+
+      pos_++;
+
+      return TokenKind::kStrLiteral;
     } else if (std::ispunct(ch)) {
-      /// 041 ``!'' 042 ``"'' 043 ``#'' 044 ``$'' 045 ``%''
-      /// 046 ``&'' 047 ``''' 050 ``('' 051 ``)'' 052 ``*''
-      /// 053 ``+'' 054 ``,'' 055 ``-'' 056 ``.'' 057 ``/''
-      /// 072 ``:'' 073 ``;'' 074 ``<'' 075 ``='' 076 ``>''
-      /// 077 ``?'' 100 ``@'' 133 ``['' 134 ``\'' 135 ``]''
-      /// 136 ``^'' 137 ``_'' 140 ```'' 173 ``{'' 174 ``|''
-      /// 175 ``}'' 176 ``~''
-
-      /// TODO(gc): Do we need to remove `$`, `@`?
-      kind = TokenKind::kReserved;
+      // 041 ``!'' 042 ``"'' 043 ``#'' 044 ``$'' 045 ``%''
+      // 046 ``&'' 047 ``''' 050 ``('' 051 ``)'' 052 ``*''
+      // 053 ``+'' 054 ``,'' 055 ``-'' 056 ``.'' 057 ``/''
+      // 072 ``:'' 073 ``;'' 074 ``<'' 075 ``='' 076 ``>''
+      // 077 ``?'' 100 ``@'' 133 ``['' 134 ``\'' 135 ``]''
+      // 136 ``^'' 137 ``_'' 140 ```'' 173 ``{'' 174 ``|''
+      // 175 ``}'' 176 ``~''
+      // TODO(gc): Do we need to remove `$`, `@`?
 
       switch (ch) {
         case '.':
@@ -114,7 +169,11 @@ class Tokenizer {
           break;
 
         case '-':
-          /// Continue to verify next character, greedy match.
+          // Continue to verify next character, greedy match.
+          // Valid cases:
+          // --
+          // ->
+          // -=
           for (auto ch : "->="sv) {
             if (advance_if_match(ch)) {
               break;
@@ -183,61 +242,62 @@ class Tokenizer {
         default:
           break;
       }
+
+      return TokenKind::kReserved;
     } else if (is_alpha(ch)) {
-      /// Step back one character and Check if it's a keyword at current
-      /// position.
+      // Step back one character and Check if it's a keyword at current
+      // position.
       pos_--;
-      int index = index_of_keyword();
+      int index = index_of_keyword(pos_, available());
 
       if (index != -1) {
-        kind = TokenKind::kReserved;
-        auto len = kKeywords[index].size();
-        pos_ += len;
-      } else {
-        kind = TokenKind::kIdentifier;
+        pos_ += kKeywords[index].size();
 
+        return TokenKind::kReserved;
+      } else {
         while (!is_eof() && is_alnum(*pos_)) {
           pos_++;
         }
+
+        return TokenKind::kIdentifier;
       }
     } else {
       pos_--;
 
-      /// Meet an unknown character.
-      CHIBICPP_THROW_ERROR("invalid token", ch);
+      // Encounter an unknown character.
+      CHIBICPP_THROW_ERROR("Invalid token: ", ch, " @ ", location_);
+
+      __builtin_unreachable();
     }
-
-    /// Update the source location.
-    size_t consumed = pos_ - old_pos;
-    location_.x_pos += consumed;
-
-    return kind;
   }
 
-  /// Skip the whitespace.
-  /// But the side effect is that we also update the location.
-  /// TODO(gc): Is any cleaner way to do it?
+  /// @brief Skip the whitespace with side effect.
+  ///
+  /// Note: The side effect is to update the location.
   void skip_whitespace() {
     char ch;
 
     while (!is_eof() && std::isspace(ch = *pos_)) {
-      if (ch == '\n') {
-        location_.x_pos = 1;
-        location_.y_pos++;
-      } else {
-        location_.x_pos++;
-      }
-
+      update_source_location(ch);
       pos_++;
+    }
+  }
+
+  void update_source_location(char ch) {
+    if (ch == '\n') {
+      location_.x_pos = 1;
+      location_.y_pos++;
+    } else {
+      location_.x_pos++;
     }
   }
 
   /// Compare the specified `str` with the content starting from `pos_`. If the
   /// content matches `str`, advance the `pos_` pointer by `len`.
   ///
-  /// @param str A pointer to string.
-  /// @param len Size of the string.
-  /// @return `true` if the content matches `str`; otherwise return `false`.
+  /// \param str A pointer to string.
+  /// \param len Size of the string.
+  /// \return `true` if the content matches `str`; otherwise return `false`.
   bool advance_if_match(char const* str, size_t len) {
     if (available() < len || std::strncmp(pos_, str, len) != 0) {
       return false;
@@ -302,20 +362,39 @@ class Lexer {
     idx_ = mark_;
   }
 
+  /// @name Peek.
+  /// @{
+
+  /// \brief Attempt to peek at the current token and check if it matches the
+  ///        specified token kind.
+  ///
+  /// \param kind The expected token kind to match.
+  /// \param out_token Output token that will be assigned the token if matched.
+  /// \return `true` if the current token matches the specified kind, otherwise
+  ///         `false`.
+  bool try_peek(TokenKind kind, Token& out_token) {
+    if (is_eof() || tokens_[idx_].kind() != kind) {
+      return false;
+    }
+
+    out_token = tokens_[idx_];
+
+    return true;
+  }
+
+  /// \brief Attempt to peek at the current token and check if it matches a
+  ///        reserved keyword or punctuator.
+  ///
+  /// \param op The expected string (keyword or punctuator) to match.
+  /// \param out_token Output token that will be assigned the token if matched.
+  /// \return `true` if the current token matches the specified string,
+  ///         otherwise `false`.
   bool try_peek(char const* op, Token& out_token) {
-    if (is_eof()) {
+    if (!try_peek(TokenKind::kReserved, out_token)) {
       return false;
     }
 
-    Token token = tokens_[idx_];
-    TokenKind kind = token.kind();
-
-    // Keywords or punctuators.
-    if (kind != TokenKind::kReserved) {
-      return false;
-    }
-
-    auto str = token.as_str();
+    auto str = out_token.as_str();
 
     // If size or content is not matched.
     if (strlen(op) != str.size() ||
@@ -323,7 +402,20 @@ class Lexer {
       return false;
     }
 
-    out_token = token;
+    return true;
+  }
+
+  /// @}
+
+  /// @name Consume.
+  /// @{
+
+  bool try_consume(TokenKind kind, Token& out_token) {
+    if (!try_peek(kind, out_token)) {
+      return false;
+    }
+
+    idx_++;
 
     return true;
   }
@@ -337,68 +429,63 @@ class Lexer {
   /// \param op
   /// \return `true` if succeed to consume this token, otherwise `false`.
   bool try_consume(char const* op) {
-    Token dummy;
-    auto succeed = try_peek(op, dummy);
-
-    if (succeed) {
-      idx_++;
-    }
-
-    return succeed;
-  }
-
-  /// \brief Try to consume next token and expect it's an identifier.
-  ///
-  /// \return
-  bool try_consume_identifier(Token& token) {
-    if (is_eof() || tokens_[idx_].kind() != TokenKind::kIdentifier) {
+    if (!try_peek(op, Token::dummy_eof())) {
       return false;
     }
 
-    token = tokens_[idx_++];
+    idx_++;
 
     return true;
   }
 
-  void expect(char const* op) {
-    if (!try_consume(op)) {
-      CHIBICPP_THROW_ERROR("Expected ", std::quoted(op));
+  /// @}
+
+  /// @name Expect.
+  /// @{
+
+  void expect(TokenKind kind, Token& out_token) {
+    if (!try_consume(kind, out_token)) {
+      std::string err = "Expect " + token_kind_to_string(kind) + " but got ";
+
+      if (is_eof()) {
+        err += "EOF";
+      } else {
+        err += token_kind_to_string(tokens_[idx_].kind());
+      }
+
+      CHIBICPP_THROW_ERROR(err);
     }
   }
 
-  void expect_number(Token& token) { expect(token, TokenKind::kNum); }
+  void expect(char const* op) {
+    if (!try_consume(op)) {
+      CHIBICPP_THROW_ERROR("Expect ", std::quoted(op));
+    }
+  }
+
+  void expect_number(Token& token) { expect(TokenKind::kNum, token); }
 
   /// \brief Expect next token is an identifier. If it is, this token will be
   ///        consumed, otherwise an exception will be thrown.
   ///
   /// \param token
-  void expect_identider(Token& token) { expect(token, TokenKind::kIdentifier); }
+  void expect_identider(Token& token) { expect(TokenKind::kIdentifier, token); }
+
+  /// @}
 
   /* constexpr */ bool is_eof() const { return idx_ >= tokens_.size(); }
+
+  /// @name Iterators.
+  /// @{
 
   auto begin() { return tokens_.begin(); }
   auto end() { return tokens_.end(); }
   auto begin() const { return tokens_.begin(); }
   auto end() const { return tokens_.end(); }
 
+  /// @}
+
  private:
-  void expect(Token& token, TokenKind kind) {
-    if (is_eof() || tokens_[idx_].kind() != kind) {
-      std::string error =
-          "Expect a " + token_kind_to_string(kind) + " but got a ";
-
-      if (is_eof()) {
-        error += "EOF";
-      } else {
-        error += token_kind_to_string(tokens_[idx_].kind());
-      }
-
-      CHIBICPP_THROW_ERROR(error);
-    }
-
-    token = tokens_[idx_++];
-  }
-
   size_t idx_;
   size_t mark_;
   std::vector<Token> tokens_;

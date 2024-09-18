@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <tuple>
 
 namespace chibicpp {
 
@@ -60,117 +61,145 @@ enum class TokenKind {
 
 inline std::string token_kind_to_string(TokenKind kind) {
   if (kind == TokenKind::kReserved) {
-    return "Keyword or Punctuator";
+    return "KEYWORD | PUNCTUATOR";
   } else if (kind == TokenKind::kIdentifier) {
-    return "Identifier";
+    return "IDENTIFIER";
+  } else if (kind == TokenKind::kStrLiteral) {
+    return "STRING LITERAL";
   } else if (kind == TokenKind::kNum) {
-    return "Number";
+    return "NUMBER";
   } else if (kind == TokenKind::kEOF) {
     return "EOF";
   } else {
-    return "Unknown";
+    return "UNKOWN";
   }
 }
 
 struct SourceLocation {
   int x_pos{1};
   int y_pos{1};
+
+  friend std::ostream& operator<<(std::ostream& os, SourceLocation loc) {
+    return os << loc.y_pos << ':' << loc.x_pos;
+  }
 };
 
 class Token {
  public:
-  /// @brief Get a dummy token.
+  /// \brief A utility method to provide a dummy eof token.
   ///
-  /// @return A dummy token type of EOF.
-  static Token& dummy() {
+  /// \return A token with type of EOF.
+  static Token& dummy_eof() {
     static Token token;
 
     return token;
   }
 
-  /// @name
-  /// Constructors.
-
+  /// @name Constructors.
   /// @{
 
-  /// @brief Construct a EOF token.
+  /// \brief Construct a EOF token.
   Token() : kind_(TokenKind::kEOF) {}
 
-  explicit Token(SourceLocation location) : Token(TokenKind::kEOF, location) {}
-
+  /// \brief Constructs a token with a string value.
+  ///
+  /// This constructor initializes a token with the specified kind, source
+  /// location, and a string.
+  ///
+  /// \param kind The kind of the token.
+  /// \param location The source location of the token.
+  /// \param str A pointer to the character data of the string.
+  /// \param len The length of the string.
   Token(TokenKind kind, SourceLocation location, char const* str, size_t len)
-      : Token(kind, location) {
+      : kind_(kind), location_(location) {
     u_.str.data = str;
-    u_.str.len = len;
+    u_.str.length = len;
   }
 
+  /// \brief Constructs a token with a 64-bit integer value.
+  ///
+  /// \param kind The kind of the token.
+  /// \param location The source location of the token.
+  /// \param i64 The 64-bit integer value to be associated with the token.
   Token(TokenKind kind, SourceLocation location, int64_t i64)
       : Token(kind, location) {
     u_.i64 = i64;
   }
 
+  /// \brief Constructs a token with a 64-bit floating-point value.
+  ///
+  /// \param kind The kind of the token.
+  /// \param location The source location of the token.
+  /// \param f64 The 64-bit floating-point value to be associated with the
+  ///            token.
   Token(TokenKind kind, SourceLocation location, double f64)
       : Token(kind, location) {
     u_.f64 = f64;
   }
 
-  Token(TokenKind kind, SourceLocation location)
-      : kind_(kind), location_(location) {}
-
   /// @}
 
+  /// \brief Get the kind of token.
+  ///
+  /// \return Token kind.
   constexpr TokenKind kind() const { return kind_; }
-  constexpr SourceLocation location() const { return location_; }
-  char const* as_cstr(int& len) const {
-    len = u_.str.len;
 
-    return u_.str.data;
+  /// \brief Get the source location of the token.
+  ///
+  /// \return Source location of the token.
+  constexpr SourceLocation location() const { return location_; }
+
+  /// \brief Get the token's string representation as a C-string along with its
+  ///        length.
+  ///
+  /// \return A tuple containing the C-string and its length.
+  std::tuple<char const*, int> as_cstr() const {
+    return {u_.str.data, u_.str.length};
   }
-  std::string as_str() const { return std::string{u_.str.data, u_.str.len}; }
+
+  /// \brief Get the token's string representation as an `std::string`.
+  ///
+  /// \return A string representation of the token.
+  std::string as_str() const { return std::string{u_.str.data, u_.str.length}; }
+
+  /// \brief Get the token's value as an `int64_t`.
+  ///
+  /// \return An `int64_t`.
   int64_t as_i64() const { return u_.i64; }
+
+  /// \brief Get the token's value as a `double`.
+  ///
+  /// \return A `double`.
   double as_f64() const { return u_.f64; }
 
   friend std::ostream& operator<<(std::ostream& os, Token const& token) {
     auto kind = token.kind();
     auto location = token.location();
 
-    os << location.y_pos << ':' << location.x_pos << ':';
+    if (kind == TokenKind::kEOF) {
+      return os << "EOF";
+    }
+
+    os << '[' << location.y_pos << ':' << location.x_pos << ']' << ':';
 
     switch (kind) {
       case TokenKind::kNum:
         os << token.as_i64();
-        break;
-      case TokenKind::kEOF:
-        os << "EOF";
         break;
       default:
         os << std::quoted(token.as_str());
         break;
     }
 
+    os << " => " << token_kind_to_string(kind);
+
     return os;
   }
 
-  friend bool operator==(Token const& lhs, Token const& rhs) {
-    if (lhs.kind() != rhs.kind()) {
-      return false;
-    }
-
-    auto kind = lhs.kind();
-
-    if (kind == TokenKind::kNum) {
-      return lhs.as_i64() == rhs.as_i64();
-    }
-
-    return lhs.u_.str.len == rhs.u_.str.len &&
-           std::strncmp(lhs.u_.str.data, rhs.u_.str.data, rhs.u_.str.len) == 0;
-  }
-
-  friend bool operator!=(Token const& lhs, Token const& rhs) {
-    return !(lhs == rhs);
-  }
-
  private:
+  Token(TokenKind kind, SourceLocation location)
+      : kind_(kind), location_(location) {}
+
   TokenKind kind_;
   SourceLocation location_;
 
@@ -180,7 +209,7 @@ class Token {
   union {
     struct {
       char const* data;
-      size_t len;
+      size_t length;
     } str;
     int64_t i64;
     double f64;

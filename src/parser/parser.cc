@@ -371,6 +371,7 @@ std::unique_ptr<Node> Parser::parse_declaration() {
 /// primary ::= "(" expr ")"
 ///           | "sizeof" unary
 ///           | ident func-args?
+///           | str
 ///           | num
 /// args    ::= "(" ")"
 std::unique_ptr<Node> Parser::parse_primary() {
@@ -390,7 +391,7 @@ std::unique_ptr<Node> Parser::parse_primary() {
     return make_a_number(node->type->size_in_bytes());
   }
 
-  if (lexer_.try_consume_identifier(token)) {
+  if (lexer_.try_consume(TokenKind::kIdentifier, token)) {
     // Check function call.
     if (lexer_.try_consume("(")) {
       auto node = std::make_unique<Node>(NodeKind::kFunCall);
@@ -407,6 +408,16 @@ std::unique_ptr<Node> Parser::parse_primary() {
     if (var == nullptr) {
       CHIBICPP_THROW_ERROR(ident + " is not defined.");
     }
+
+    return make_a_var(var);
+  }
+
+  // String literal.
+  if (lexer_.try_consume(TokenKind::kStrLiteral, token)) {
+    // Add an extra terminate '\0'.
+    auto [content, len] = token.as_cstr();
+    auto type = TypeMgr::get_array(len + 1, TypeMgr::get_primitive(kChar));
+    auto var = create_global_var(new_global_label(), content, len, type);
 
     return make_a_var(var);
   }
@@ -461,6 +472,18 @@ inline Var* Parser::create_global_var(std::string const& ident, Type* type) {
   return globals_.back().get();
 }
 
+inline Var* Parser::create_global_var(std::string const& ident,
+                                      char const* content, int len,
+                                      Type* type) {
+  globals_.push_back(std::make_unique<Var>(ident, content, len, type));
+
+  return globals_.back().get();
+}
+
+inline std::string Parser::new_global_label() {
+  return ".L.data." + std::to_string(global_label_++);
+}
+
 Var* Parser::get_var(std::string const& ident) {
   auto name_compare = [&ident](auto const& var) {
     return var->name() == ident;
@@ -491,7 +514,8 @@ bool Parser::is_function() {
 
   (void)parse_basetype();
   bool is_func =
-      lexer_.try_consume_identifier(Token::dummy()) && lexer_.try_consume("(");
+      lexer_.try_consume(TokenKind::kIdentifier, Token::dummy_eof()) &&
+      lexer_.try_consume("(");
 
   lexer_.reset();
 
@@ -502,7 +526,7 @@ bool Parser::is_typename() {
   static const std::vector<char const*> kTypenames{"char", "int"};
 
   return std::find_if(kTypenames.begin(), kTypenames.end(), [this](auto key) {
-           return lexer_.try_peek(key, Token::dummy());
+           return lexer_.try_peek(key, Token::dummy_eof());
          }) != kTypenames.end();
 }
 

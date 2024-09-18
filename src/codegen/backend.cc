@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <iterator>
 
 #include "chibicpp/ast/node.hh"
 #include "chibicpp/common/error.hh"
@@ -13,7 +14,16 @@ void Backend::visit_global(Var* var, AstContext& context) {
   // The assembler will merge them into a single section.
   stream_ << ".data\n";
   stream_ << var->name() << ":\n";
-  stream_ << "  .zero " << var->type()->size_in_bytes() << '\n';
+
+  if (var->is_string_literal()) {
+    for (auto c : var->string_literal()) {
+      stream_ << "  .byte " << static_cast<int>(c) << '\n';
+    }
+
+    stream_ << "  .byte 0\n";
+  } else {
+    stream_ << "  .zero " << var->type()->size_in_bytes() << '\n';
+  }
 }
 
 void Backend::visit_program(Program* prog, AstContext& context) {
