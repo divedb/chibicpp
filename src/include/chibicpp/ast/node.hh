@@ -40,13 +40,9 @@ class Var {
   ///
   /// \param name The name of the variable.
   /// \param content The content of string literal.
-  /// \param len The length of string literal.
   /// \param type The type of the variable.
-  Var(std::string const& name, char const* content, int len, Type* type)
-      : name_{name},
-        type_{type},
-        offset_{kTypeMask},
-        literal_{content, static_cast<size_t>(len)} {}
+  Var(std::string const& name, std::string const& content, Type* type)
+      : name_{name}, type_{type}, offset_{kTypeMask}, literal_{content} {}
 
   /// @}
 
@@ -80,10 +76,10 @@ class Var {
   void set_offset(int offset) { offset_ = offset << kOffsetShift; }
 
  private:
-  std::string name_;          ///< Do we shared the memory buffer
-  Type* type_;                ///< Variable type.
-  int offset_;                ///< Local variable offset from rbp register.
-  std::string_view literal_;  ///< String literal.
+  std::string name_;     ///< Do we shared the memory buffer
+  Type* type_;           ///< Variable type.
+  int offset_;           ///< Local variable offset from rbp register.
+  std::string literal_;  ///< String literal.
 };
 
 /// AST node.

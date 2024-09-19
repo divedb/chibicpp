@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 #include <tuple>
+#include <variant>
 
 namespace chibicpp {
 
@@ -108,13 +109,9 @@ class Token {
   ///
   /// \param kind The kind of the token.
   /// \param location The source location of the token.
-  /// \param str A pointer to the character data of the string.
-  /// \param len The length of the string.
-  Token(TokenKind kind, SourceLocation location, char const* str, size_t len)
-      : kind_(kind), location_(location) {
-    u_.str.data = str;
-    u_.str.length = len;
-  }
+  /// \param str A string.
+  Token(TokenKind kind, SourceLocation location, std::string const& str)
+      : kind_{kind}, location_{location}, data_{str} {}
 
   /// \brief Constructs a token with a 64-bit integer value.
   ///
@@ -122,9 +119,7 @@ class Token {
   /// \param location The source location of the token.
   /// \param i64 The 64-bit integer value to be associated with the token.
   Token(TokenKind kind, SourceLocation location, int64_t i64)
-      : Token(kind, location) {
-    u_.i64 = i64;
-  }
+      : kind_{kind}, location_{location}, data_{i64} {}
 
   /// \brief Constructs a token with a 64-bit floating-point value.
   ///
@@ -133,9 +128,7 @@ class Token {
   /// \param f64 The 64-bit floating-point value to be associated with the
   ///            token.
   Token(TokenKind kind, SourceLocation location, double f64)
-      : Token(kind, location) {
-    u_.f64 = f64;
-  }
+      : kind_{kind}, location_{location}, data_{f64} {}
 
   /// @}
 
@@ -152,25 +145,31 @@ class Token {
   /// \brief Get the token's string representation as a C-string along with its
   ///        length.
   ///
+  /// Note: The C-string data inside the returned tuple shares the same lifetime
+  ///       as this token, meaning it remains valid as long as the token is not
+  ///       modified or destroyed.
+  ///
   /// \return A tuple containing the C-string and its length.
   std::tuple<char const*, int> as_cstr() const {
-    return {u_.str.data, u_.str.length};
+    auto const& str = std::get<std::string>(data_);
+
+    return {str.data(), str.length()};
   }
 
   /// \brief Get the token's string representation as an `std::string`.
   ///
   /// \return A string representation of the token.
-  std::string as_str() const { return std::string{u_.str.data, u_.str.length}; }
+  std::string const& as_str() const { return std::get<std::string>(data_); }
 
   /// \brief Get the token's value as an `int64_t`.
   ///
-  /// \return An `int64_t`.
-  int64_t as_i64() const { return u_.i64; }
+  /// \return An integer with type `int64_t`.
+  int64_t as_i64() const { return std::get<int64_t>(data_); }
 
   /// \brief Get the token's value as a `double`.
   ///
-  /// \return A `double`.
-  double as_f64() const { return u_.f64; }
+  /// \return A number with type `double`.
+  double as_f64() const { return std::get<double>(data_); }
 
   friend std::ostream& operator<<(std::ostream& os, Token const& token) {
     auto kind = token.kind();
@@ -197,23 +196,10 @@ class Token {
   }
 
  private:
-  Token(TokenKind kind, SourceLocation location)
-      : kind_(kind), location_(location) {}
-
   TokenKind kind_;
   SourceLocation location_;
 
-  // The reason we don't use variant is that
-  // each member of the union is trivial.
-  // And variant has an extra index member to indicate current data type.
-  union {
-    struct {
-      char const* data;
-      size_t length;
-    } str;
-    int64_t i64;
-    double f64;
-  } u_;
+  std::variant<std::string, int64_t, double> data_;
 };
 
 }  // namespace chibicpp

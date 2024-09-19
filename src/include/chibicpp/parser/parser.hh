@@ -80,7 +80,7 @@ class Parser {
   /// \return A pointer to the created variable.
   Var* create_local_var(std::string const& ident, Type* type);
   Var* create_global_var(std::string const& ident, Type* type);
-  Var* create_global_var(std::string const& ident, char const* content, int len,
+  Var* create_global_var(std::string const& ident, std::string const& content,
                          Type* type);
   std::string new_global_label();
 

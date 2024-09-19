@@ -415,9 +415,10 @@ std::unique_ptr<Node> Parser::parse_primary() {
   // String literal.
   if (lexer_.try_consume(TokenKind::kStrLiteral, token)) {
     // Add an extra terminate '\0'.
-    auto [content, len] = token.as_cstr();
-    auto type = TypeMgr::get_array(len + 1, TypeMgr::get_primitive(kChar));
-    auto var = create_global_var(new_global_label(), content, len, type);
+    auto const& str = token.as_str();
+    auto type =
+        TypeMgr::get_array(str.size() + 1, TypeMgr::get_primitive(kChar));
+    auto var = create_global_var(new_global_label(), str, type);
 
     return make_a_var(var);
   }
@@ -473,9 +474,8 @@ inline Var* Parser::create_global_var(std::string const& ident, Type* type) {
 }
 
 inline Var* Parser::create_global_var(std::string const& ident,
-                                      char const* content, int len,
-                                      Type* type) {
-  globals_.push_back(std::make_unique<Var>(ident, content, len, type));
+                                      std::string const& content, Type* type) {
+  globals_.push_back(std::make_unique<Var>(ident, content, type));
 
   return globals_.back().get();
 }
@@ -588,7 +588,7 @@ std::vector<std::unique_ptr<Node>> Parser::parse_func_args() {
   return args;
 }
 
-/// @brief global-var ::= basetype ident "("[" num "]")*" ";"
+/// \brief global-var ::= basetype ident "("[" num "]")*" ";"
 void Parser::parse_global_var() {
   Token ident;
   auto type = parse_basetype();
