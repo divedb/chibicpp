@@ -105,6 +105,7 @@ enum class NodeKind {
   kBlock,     ///< {...}
   kFunCall,   ///< Function call
   kExprStmt,  ///< Expression statement
+  kStmtExpr,  ///< Statement expression
   kVar,       ///< Variable
   kNum,       ///< Integer
   kEmpty,     ///< Empty statement
@@ -134,6 +135,47 @@ struct Node {
   auto args_end() { return args.end(); }
   auto args_end() const { return args.end(); }
 
+  std::unique_ptr<Node> clone() {
+    auto cloned = std::make_unique<Node>(kind);
+
+    cloned->type = this->type;
+    cloned->func_name = this->func_name;
+    cloned->val = this->val;
+    cloned->var = this->var;
+
+    if (lhs) {
+      cloned->lhs = lhs->clone();
+    }
+    if (rhs) {
+      cloned->rhs = rhs->clone();
+    }
+    if (cond) {
+      cloned->cond = cond->clone();
+    }
+    if (then) {
+      cloned->then = then->clone();
+    }
+    if (els) {
+      cloned->els = els->clone();
+    }
+    if (init) {
+      cloned->init = init->clone();
+    }
+    if (inc) {
+      cloned->inc = inc->clone();
+    }
+
+    for (auto& n : body) {
+      cloned->body.push_back(n->clone());
+    }
+
+    for (auto& arg : args) {
+      cloned->args.push_back(arg->clone());
+    }
+
+    return cloned;
+  }
+
   NodeKind kind;              ///< Node kind.
   Type* type{};               ///< Type, e.g. int or pointer to int
   std::unique_ptr<Node> lhs;  ///< Left-hand node.
@@ -146,7 +188,7 @@ struct Node {
   std::unique_ptr<Node> init;
   std::unique_ptr<Node> inc;
 
-  /// Block statement.
+  /// Block or statement expression.
   std::vector<std::unique_ptr<Node>> body;
 
   /// Function call.

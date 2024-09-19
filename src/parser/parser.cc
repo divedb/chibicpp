@@ -368,7 +368,8 @@ std::unique_ptr<Node> Parser::parse_declaration() {
   return make_a_unary(NodeKind::kExprStmt, std::move(node));
 }
 
-/// primary ::= "(" expr ")"
+/// primary ::= "(" "{" stmt-expr-tail
+///           | "(" expr ")"
 ///           | "sizeof" unary
 ///           | ident func-args?
 ///           | str
@@ -376,6 +377,10 @@ std::unique_ptr<Node> Parser::parse_declaration() {
 /// args    ::= "(" ")"
 std::unique_ptr<Node> Parser::parse_primary() {
   if (lexer_.try_consume("(")) {
+    if (lexer_.try_consume("{")) {
+      return parse_stmt_expr();
+    }
+
     auto node = parse_expr();
     lexer_.expect(")");
 
@@ -596,6 +601,35 @@ void Parser::parse_global_var() {
   type = parse_type_suffix(type);
   lexer_.expect(";");
   create_global_var(ident.as_str(), type);
+}
+
+/// \brief stmt-expr ::= "(" "{" stmt stmt* "}" ")"
+///
+/// Statement expression is a GNU C extension.
+///
+/// \return
+std::unique_ptr<Node> Parser::parse_stmt_expr() {
+  auto node = std::make_unique<Node>(NodeKind::kStmtExpr);
+  node->body.push_back(parse_stmt());
+
+  while (!lexer_.try_consume("}")) {
+    node->body.push_back(parse_stmt());
+  }
+
+  lexer_.expect(")");
+
+  // Ensure the last statement in the body is an expression statement.
+  if (node->body.back()->kind != NodeKind::kExprStmt) {
+    CHIBICPP_THROW_ERROR(
+        "Statement expression returning void is not supported.");
+  }
+
+  // The last node is an expression statement, but we need its expression as the
+  // return value.
+  auto& lhs = node->body.back()->lhs;
+  node->body.back() = std::move(lhs);
+
+  return node;
 }
 
 }  // namespace chibicpp

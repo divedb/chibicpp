@@ -195,6 +195,7 @@ void Backend::visit_node(Node* node, AstContext& context) {
     }
 
     case NodeKind::kBlock:
+    case NodeKind::kStmtExpr:
       for (auto& e : node->body) {
         visit_node(e.get(), context);
       }

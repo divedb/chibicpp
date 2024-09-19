@@ -69,6 +69,7 @@ class Parser {
   std::unique_ptr<Node> parse_primary();
   std::vector<std::unique_ptr<Node>> parse_func_args();
   void parse_global_var();
+  std::unique_ptr<Node> parse_stmt_expr();
 
   /// \name Utility method
   /// @{

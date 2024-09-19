@@ -77,10 +77,11 @@ void add_type(Node* node) {
 
       return;
 
-    default:
-      // std::cout << "Unhandled node kind: " << static_cast<int>(node->kind)
-      //           << std::endl;
+    case NodeKind::kStmtExpr:
+      node->type = node->body.back()->type;
+      break;
 
+    default:
       break;
   }
 }
