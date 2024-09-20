@@ -11,6 +11,38 @@ class Lexer;
 class Node;
 class Var;
 
+struct ParserInfo {
+  struct CallStack {
+    std::string fname;
+    int lineno;
+    int depth;
+  };
+
+  int depth{};
+  std::vector<CallStack> call_stacks;
+};
+
+class CallStackGuard {
+ public:
+  explicit CallStackGuard(ParserInfo& pinfo, std::string const& fname,
+                          int lineno)
+      : pinfo_(pinfo) {
+#ifndef NDEBUG
+    pinfo_.call_stacks.push_back({fname, lineno, pinfo_.depth});
+    ++pinfo_.depth;
+#endif
+  }
+
+  ~CallStackGuard() {
+#ifndef NDEBUG
+    --pinfo_.depth;
+#endif
+  }
+
+ private:
+  ParserInfo& pinfo_;
+};
+
 class Parser {
  public:
   explicit Parser(Lexer& lexer) : lexer_(lexer) {}
@@ -26,12 +58,12 @@ class Parser {
   /// \endcode
   ///
   /// \return
-  Function::Prototype parse_function_prototype();
+  Function::Prototype parse_function_prototype(ParserInfo& pinfo);
 
   /// \brief Parse function body.
-  std::vector<std::unique_ptr<Node>> parse_function_body();
+  std::vector<std::unique_ptr<Node>> parse_function_body(ParserInfo& pinfo);
 
-  std::unique_ptr<Function> parse_function();
+  std::unique_ptr<Function> parse_function(ParserInfo& pinfo);
 
   /// stmt ::= "return" expr ";"
   ///        | "if" "(" expr ")" stmt ( "else" stmt )?
@@ -39,21 +71,21 @@ class Parser {
   ///        |
   ///
   /// \return
-  std::unique_ptr<Node> parse_stmt();
-  std::unique_ptr<Node> parse_expr();
-  std::unique_ptr<Node> parse_assign();
-  std::unique_ptr<Node> parse_equality();
-  std::unique_ptr<Node> parse_relational();
-  std::unique_ptr<Node> parse_add();
-  std::unique_ptr<Node> parse_mul();
-  std::unique_ptr<Node> parse_unary();
-  std::unique_ptr<Node> parse_postfix();
-  std::unique_ptr<Node> parse_expr_stmt();
-  std::unique_ptr<Node> parse_declaration();
+  std::unique_ptr<Node> parse_stmt(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_expr(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_assign(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_equality(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_relational(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_add(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_mul(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_unary(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_postfix(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_expr_stmt(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_declaration(ParserInfo& pinfo);
 
-  Type* parse_type_suffix(Type* base);
-  Type* parse_basetype();
-  Var* parse_func_param();
+  Type* parse_type_suffix(Type* base, ParserInfo& pinfo);
+  Type* parse_basetype(ParserInfo& pinfo);
+  Var* parse_func_param(ParserInfo& pinfo);
 
   /// \brief Parse function parameters.
   ///
@@ -62,14 +94,14 @@ class Parser {
   /// function parameter is also considered as part of locals.
   ///
   /// \return
-  std::vector<Var*> parse_func_params();
+  std::vector<Var*> parse_func_params(ParserInfo& pinfo);
 
   /// \brief primary ::= "(" expr ")" | ident | num
   /// \return
-  std::unique_ptr<Node> parse_primary();
-  std::vector<std::unique_ptr<Node>> parse_func_args();
-  void parse_global_var();
-  std::unique_ptr<Node> parse_stmt_expr();
+  std::unique_ptr<Node> parse_primary(ParserInfo& pinfo);
+  std::vector<std::unique_ptr<Node>> parse_func_args(ParserInfo& pinfo);
+  void parse_global_var(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_stmt_expr(ParserInfo& pinfo);
 
   /// \name Utility method
   /// @{
@@ -97,7 +129,7 @@ class Parser {
   ///        variable by looking ahead input tokens.
   ///
   /// \return `true` if it's a function, otherwise `false`.
-  bool is_function();
+  bool is_function(ParserInfo& pinfo);
 
   bool is_typename();
 

@@ -8,6 +8,29 @@
 
 namespace chibicpp {
 
+namespace {
+
+#define TOKENPASTE(x, y) x##y
+#define TOKENPASTE2(x, y) TOKENPASTE(x, y)
+
+#define MAKE_CALL_STACK(pinfo) \
+  CallStackGuard TOKENPASTE2(guard_, __COUNTER__)(pinfo, __func__, __LINE__)
+
+static ParserInfo pinfo;
+
+std::ostream& ident(std::ostream& os, int depth) {
+  return os << std::string(depth * 2, ' ');
+}
+
+void print_call_stack() {
+  for (auto const& cs : pinfo.call_stacks) {
+    ident(std::cout, cs.depth);
+    std::cout << '[' << cs.fname << "]:" << cs.lineno << '\n';
+  }
+}
+
+}  // namespace
+
 static std::unique_ptr<Node> new_add(std::unique_ptr<Node> lhs,
                                      std::unique_ptr<Node> rhs) {
   add_type(lhs.get());
@@ -58,37 +81,45 @@ static std::unique_ptr<Node> new_sub(std::unique_ptr<Node> lhs,
 ///
 /// \return
 std::unique_ptr<Program> Parser::parse_program() {
+  MAKE_CALL_STACK(pinfo);
   std::vector<std::unique_ptr<Function>> prog;
 
+  std::set_terminate(print_call_stack);
+
   while (!lexer_.is_eof()) {
-    if (is_function()) {
-      auto func = parse_function();
+    if (is_function(pinfo)) {
+      auto func = parse_function(pinfo);
       prog.push_back(std::move(func));
     } else {
-      parse_global_var();
+      parse_global_var(pinfo);
     }
   }
 
   return std::make_unique<Program>(std::move(globals_), std::move(prog));
 }
 
-Function::Prototype Parser::parse_function_prototype() {
-  Token fname;
+Function::Prototype Parser::parse_function_prototype(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
 
-  Type* ret_type = parse_basetype();
+  Token fname;
+  Type* ret_type = parse_basetype(pinfo);
   lexer_.expect_identider(fname);
   lexer_.expect("(");
-  auto params = parse_func_params();
+  auto params = parse_func_params(pinfo);
 
   return {ret_type, fname.as_str(), params};
 }
 
-std::vector<std::unique_ptr<Node>> Parser::parse_function_body() {
+std::vector<std::unique_ptr<Node>> Parser::parse_function_body(
+    ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   std::vector<std::unique_ptr<Node>> body;
 
   lexer_.expect("{");
   while (!lexer_.try_consume("}")) {
-    auto node = parse_stmt();
+    MAKE_CALL_STACK(pinfo);
+    auto node = parse_stmt(pinfo);
     body.push_back(std::move(node));
   }
 
@@ -100,11 +131,12 @@ std::vector<std::unique_ptr<Node>> Parser::parse_function_body() {
 ///        param    ::= basetype ident
 ///
 /// @return
-std::unique_ptr<Function> Parser::parse_function() {
-  locals_.clear();
+std::unique_ptr<Function> Parser::parse_function(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
 
-  auto proto = parse_function_prototype();
-  auto body = parse_function_body();
+  locals_.clear();
+  auto proto = parse_function_prototype(pinfo);
+  auto body = parse_function_body(pinfo);
 
   // Update the node's type information.
   for (auto& node : body) {
@@ -122,9 +154,11 @@ std::unique_ptr<Function> Parser::parse_function() {
 ///               | declaration
 ///               | expr ";"
 /// \return
-std::unique_ptr<Node> Parser::parse_stmt() {
+std::unique_ptr<Node> Parser::parse_stmt(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   if (lexer_.try_consume("return")) {
-    auto node = make_a_unary(NodeKind::kReturn, parse_expr());
+    auto node = make_a_unary(NodeKind::kReturn, parse_expr(pinfo));
     lexer_.expect(";");
 
     return node;
@@ -133,12 +167,12 @@ std::unique_ptr<Node> Parser::parse_stmt() {
   if (lexer_.try_consume("if")) {
     auto node = std::make_unique<Node>(NodeKind::kIf);
     lexer_.expect("(");
-    node->cond = parse_expr();
+    node->cond = parse_expr(pinfo);
     lexer_.expect(")");
-    node->then = parse_stmt();
+    node->then = parse_stmt(pinfo);
 
     if (lexer_.try_consume("else")) {
-      node->els = parse_stmt();
+      node->els = parse_stmt(pinfo);
     }
 
     return node;
@@ -147,9 +181,9 @@ std::unique_ptr<Node> Parser::parse_stmt() {
   if (lexer_.try_consume("while")) {
     auto node = std::make_unique<Node>(NodeKind::kWhile);
     lexer_.expect("(");
-    node->cond = parse_expr();
+    node->cond = parse_expr(pinfo);
     lexer_.expect(")");
-    node->then = parse_stmt();
+    node->then = parse_stmt(pinfo);
 
     return node;
   }
@@ -159,21 +193,21 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     lexer_.expect("(");
 
     if (!lexer_.try_consume(";")) {
-      node->init = parse_expr_stmt();
+      node->init = parse_expr_stmt(pinfo);
       lexer_.expect(";");
     }
 
     if (!lexer_.try_consume(";")) {
-      node->cond = parse_expr();
+      node->cond = parse_expr(pinfo);
       lexer_.expect(";");
     }
 
     if (!lexer_.try_consume(")")) {
-      node->inc = parse_expr_stmt();
+      node->inc = parse_expr_stmt(pinfo);
       lexer_.expect(")");
     }
 
-    node->then = parse_stmt();
+    node->then = parse_stmt(pinfo);
 
     return node;
   }
@@ -182,7 +216,7 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     std::vector<std::unique_ptr<Node>> body;
 
     while (!lexer_.try_consume("}")) {
-      body.push_back(parse_stmt());
+      body.push_back(parse_stmt(pinfo));
     }
 
     auto node = std::make_unique<Node>(NodeKind::kBlock);
@@ -192,10 +226,10 @@ std::unique_ptr<Node> Parser::parse_stmt() {
   }
 
   if (is_typename()) {
-    return parse_declaration();
+    return parse_declaration(pinfo);
   }
 
-  auto node = parse_expr_stmt();
+  auto node = parse_expr_stmt(pinfo);
   lexer_.expect(";");
 
   return node;
@@ -204,16 +238,23 @@ std::unique_ptr<Node> Parser::parse_stmt() {
 /// \brief expr ::= assign
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_expr() { return parse_assign(); }
+std::unique_ptr<Node> Parser::parse_expr(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
+  return parse_assign(pinfo);
+}
 
 /// \brief assign ::= equality ("=" assign)?
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_assign() {
-  auto node = parse_equality();
+std::unique_ptr<Node> Parser::parse_assign(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
+  auto node = parse_equality(pinfo);
 
   if (lexer_.try_consume("=")) {
-    node = make_a_binary(NodeKind::kAssign, std::move(node), parse_assign());
+    node =
+        make_a_binary(NodeKind::kAssign, std::move(node), parse_assign(pinfo));
   }
 
   return node;
@@ -222,14 +263,18 @@ std::unique_ptr<Node> Parser::parse_assign() {
 /// \brief equality ::= relational ("==" relational | "!=" relational)*
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_equality() {
-  auto node = parse_relational();
+std::unique_ptr<Node> Parser::parse_equality(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
+  auto node = parse_relational(pinfo);
 
   for (;;) {
     if (lexer_.try_consume("==")) {
-      node = make_a_binary(NodeKind::kEq, std::move(node), parse_relational());
+      node = make_a_binary(NodeKind::kEq, std::move(node),
+                           parse_relational(pinfo));
     } else if (lexer_.try_consume("!=")) {
-      node = make_a_binary(NodeKind::kNe, std::move(node), parse_relational());
+      node = make_a_binary(NodeKind::kNe, std::move(node),
+                           parse_relational(pinfo));
     } else {
       return node;
     }
@@ -242,18 +287,20 @@ std::unique_ptr<Node> Parser::parse_equality() {
 /// \brief relational ::= add ("<" add | "<=" add | ">" add | ">=" add)*
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_relational() {
-  auto node = parse_add();
+std::unique_ptr<Node> Parser::parse_relational(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
+  auto node = parse_add(pinfo);
 
   for (;;) {
     if (lexer_.try_consume("<")) {
-      node = make_a_binary(NodeKind::kLt, std::move(node), parse_add());
+      node = make_a_binary(NodeKind::kLt, std::move(node), parse_add(pinfo));
     } else if (lexer_.try_consume("<=")) {
-      node = make_a_binary(NodeKind::kLe, std::move(node), parse_add());
+      node = make_a_binary(NodeKind::kLe, std::move(node), parse_add(pinfo));
     } else if (lexer_.try_consume(">")) {
-      node = make_a_binary(NodeKind::kLt, parse_add(), std::move(node));
+      node = make_a_binary(NodeKind::kLt, parse_add(pinfo), std::move(node));
     } else if (lexer_.try_consume(">=")) {
-      node = make_a_binary(NodeKind::kLe, parse_add(), std::move(node));
+      node = make_a_binary(NodeKind::kLe, parse_add(pinfo), std::move(node));
     } else {
       return node;
     }
@@ -266,14 +313,16 @@ std::unique_ptr<Node> Parser::parse_relational() {
 /// \brief add ::= mul ("+" mul | "-" mul)*
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_add() {
-  auto node = parse_mul();
+std::unique_ptr<Node> Parser::parse_add(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
+  auto node = parse_mul(pinfo);
 
   for (;;) {
     if (lexer_.try_consume("+")) {
-      node = new_add(std::move(node), parse_mul());
+      node = new_add(std::move(node), parse_mul(pinfo));
     } else if (lexer_.try_consume("-")) {
-      node = new_sub(std::move(node), parse_mul());
+      node = new_sub(std::move(node), parse_mul(pinfo));
     } else {
       return node;
     }
@@ -286,14 +335,16 @@ std::unique_ptr<Node> Parser::parse_add() {
 /// \brief mul ::= unary ("*" unary | "/" unary)*
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_mul() {
-  auto node = parse_unary();
+std::unique_ptr<Node> Parser::parse_mul(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
+  auto node = parse_unary(pinfo);
 
   for (;;) {
     if (lexer_.try_consume("*")) {
-      node = make_a_binary(NodeKind::kMul, std::move(node), parse_unary());
+      node = make_a_binary(NodeKind::kMul, std::move(node), parse_unary(pinfo));
     } else if (lexer_.try_consume("/")) {
-      node = make_a_binary(NodeKind::kDiv, std::move(node), parse_unary());
+      node = make_a_binary(NodeKind::kDiv, std::move(node), parse_unary(pinfo));
     } else {
       return node;
     }
@@ -307,36 +358,40 @@ std::unique_ptr<Node> Parser::parse_mul() {
 ///                | postfix
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_unary() {
+std::unique_ptr<Node> Parser::parse_unary(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   if (lexer_.try_consume("+")) {
-    return parse_unary();
+    return parse_unary(pinfo);
   }
 
   if (lexer_.try_consume("-")) {
-    return make_a_binary(NodeKind::kSub, make_a_number(0), parse_unary());
+    return make_a_binary(NodeKind::kSub, make_a_number(0), parse_unary(pinfo));
   }
 
   if (lexer_.try_consume("&")) {
-    return make_a_unary(NodeKind::kAddr, parse_unary());
+    return make_a_unary(NodeKind::kAddr, parse_unary(pinfo));
   }
 
   if (lexer_.try_consume("*")) {
-    return make_a_unary(NodeKind::kDeref, parse_unary());
+    return make_a_unary(NodeKind::kDeref, parse_unary(pinfo));
   }
 
-  return parse_postfix();
+  return parse_postfix(pinfo);
 }
 
 /// \brief postfix ::= primary ("[" expr "]")*
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_postfix() {
+std::unique_ptr<Node> Parser::parse_postfix(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   Token token;
-  auto node = parse_primary();
+  auto node = parse_primary(pinfo);
 
   while (lexer_.try_consume("[")) {
     // x[y] is short for *(x+y)
-    auto exp = new_add(std::move(node), parse_expr());
+    auto exp = new_add(std::move(node), parse_expr(pinfo));
     lexer_.expect("]");
     node = make_a_unary(NodeKind::kDeref, std::move(exp));
   }
@@ -347,11 +402,13 @@ std::unique_ptr<Node> Parser::parse_postfix() {
 /// \brief declaration ::= basetype ident ("[" num "]")* ("=" expr) ";"
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_declaration() {
+std::unique_ptr<Node> Parser::parse_declaration(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   Token ident;
-  Type* type = parse_basetype();
+  Type* type = parse_basetype(pinfo);
   lexer_.expect_identider(ident);
-  type = parse_type_suffix(type);
+  type = parse_type_suffix(type, pinfo);
   Var* var = create_local_var(ident.as_str(), type);
 
   if (lexer_.try_consume(";")) {
@@ -360,7 +417,7 @@ std::unique_ptr<Node> Parser::parse_declaration() {
 
   lexer_.expect("=");
   auto lhs = make_a_var(var);
-  auto rhs = parse_expr();
+  auto rhs = parse_expr(pinfo);
   lexer_.expect(";");
 
   auto node = make_a_binary(NodeKind::kAssign, std::move(lhs), std::move(rhs));
@@ -375,13 +432,15 @@ std::unique_ptr<Node> Parser::parse_declaration() {
 ///           | str
 ///           | num
 /// args    ::= "(" ")"
-std::unique_ptr<Node> Parser::parse_primary() {
+std::unique_ptr<Node> Parser::parse_primary(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   if (lexer_.try_consume("(")) {
     if (lexer_.try_consume("{")) {
-      return parse_stmt_expr();
+      return parse_stmt_expr(pinfo);
     }
 
-    auto node = parse_expr();
+    auto node = parse_expr(pinfo);
     lexer_.expect(")");
 
     return node;
@@ -390,7 +449,7 @@ std::unique_ptr<Node> Parser::parse_primary() {
   Token token;
 
   if (lexer_.try_consume("sizeof")) {
-    auto node = parse_unary();
+    auto node = parse_unary(pinfo);
     add_type(node.get());
 
     return make_a_number(node->type->size_in_bytes());
@@ -401,7 +460,7 @@ std::unique_ptr<Node> Parser::parse_primary() {
     if (lexer_.try_consume("(")) {
       auto node = std::make_unique<Node>(NodeKind::kFunCall);
       node->func_name = token.as_str();
-      node->args = parse_func_args();
+      node->args = parse_func_args(pinfo);
 
       return node;
     }
@@ -433,7 +492,9 @@ std::unique_ptr<Node> Parser::parse_primary() {
   return make_a_number(token.as_i64());
 }
 
-Type* Parser::parse_type_suffix(Type* base) {
+Type* Parser::parse_type_suffix(Type* base, ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   if (!lexer_.try_consume("[")) {
     return base;
   }
@@ -441,7 +502,7 @@ Type* Parser::parse_type_suffix(Type* base) {
   Token num;
   lexer_.expect_number(num);
   lexer_.expect("]");
-  base = parse_type_suffix(base);
+  base = parse_type_suffix(base, pinfo);
 
   return TypeMgr::get_array(num.as_i64(), base);
 }
@@ -449,7 +510,9 @@ Type* Parser::parse_type_suffix(Type* base) {
 /// \brief basetype ::= ("char" | "int") "*"*
 ///
 /// \return
-Type* Parser::parse_basetype() {
+Type* Parser::parse_basetype(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   Type* type;
 
   if (lexer_.try_consume("char")) {
@@ -514,10 +577,12 @@ Var* Parser::get_var(std::string const& ident) {
   return nullptr;
 }
 
-bool Parser::is_function() {
+bool Parser::is_function(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   lexer_.mark();
 
-  (void)parse_basetype();
+  (void)parse_basetype(pinfo);
   bool is_func =
       lexer_.try_consume(TokenKind::kIdentifier, Token::dummy_eof()) &&
       lexer_.try_consume("(");
@@ -535,15 +600,19 @@ bool Parser::is_typename() {
          }) != kTypenames.end();
 }
 
-std::unique_ptr<Node> Parser::parse_expr_stmt() {
-  return make_a_unary(NodeKind::kExprStmt, parse_expr());
+std::unique_ptr<Node> Parser::parse_expr_stmt(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
+  return make_a_unary(NodeKind::kExprStmt, parse_expr(pinfo));
 }
 
-Var* Parser::parse_func_param() {
+Var* Parser::parse_func_param(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   Token ident;
-  Type* type = parse_basetype();
+  Type* type = parse_basetype(pinfo);
   lexer_.expect_identider(ident);
-  type = parse_type_suffix(type);
+  type = parse_type_suffix(type, pinfo);
 
   return create_local_var(ident.as_str(), type);
 }
@@ -553,17 +622,19 @@ Var* Parser::parse_func_param() {
 ///                      | arg (,arg)*
 ///
 /// @return
-std::vector<Var*> Parser::parse_func_params() {
+std::vector<Var*> Parser::parse_func_params(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   if (lexer_.try_consume(")")) {
     return {};
   }
 
   std::vector<Var*> params;
-  params.push_back(parse_func_param());
+  params.push_back(parse_func_param(pinfo));
 
   while (!lexer_.try_consume(")")) {
     lexer_.expect(",");
-    params.push_back(parse_func_param());
+    params.push_back(parse_func_param(pinfo));
   }
 
   // for (auto p : params) {
@@ -576,16 +647,18 @@ std::vector<Var*> Parser::parse_func_params() {
 
 /// \brief func-args ::= "(" (assign ("," assign)*)? ")"
 /// \return
-std::vector<std::unique_ptr<Node>> Parser::parse_func_args() {
+std::vector<std::unique_ptr<Node>> Parser::parse_func_args(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   if (lexer_.try_consume(")")) {
     return {};
   }
 
   std::vector<std::unique_ptr<Node>> args;
-  args.push_back(parse_assign());
+  args.push_back(parse_assign(pinfo));
 
   while (lexer_.try_consume(",")) {
-    args.push_back(parse_assign());
+    args.push_back(parse_assign(pinfo));
   }
 
   lexer_.expect(")");
@@ -594,11 +667,13 @@ std::vector<std::unique_ptr<Node>> Parser::parse_func_args() {
 }
 
 /// \brief global-var ::= basetype ident "("[" num "]")*" ";"
-void Parser::parse_global_var() {
+void Parser::parse_global_var(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   Token ident;
-  auto type = parse_basetype();
+  auto type = parse_basetype(pinfo);
   lexer_.expect_identider(ident);
-  type = parse_type_suffix(type);
+  type = parse_type_suffix(type, pinfo);
   lexer_.expect(";");
   create_global_var(ident.as_str(), type);
 }
@@ -608,12 +683,14 @@ void Parser::parse_global_var() {
 /// Statement expression is a GNU C extension.
 ///
 /// \return
-std::unique_ptr<Node> Parser::parse_stmt_expr() {
+std::unique_ptr<Node> Parser::parse_stmt_expr(ParserInfo& pinfo) {
+  MAKE_CALL_STACK(pinfo);
+
   auto node = std::make_unique<Node>(NodeKind::kStmtExpr);
-  node->body.push_back(parse_stmt());
+  node->body.push_back(parse_stmt(pinfo));
 
   while (!lexer_.try_consume("}")) {
-    node->body.push_back(parse_stmt());
+    node->body.push_back(parse_stmt(pinfo));
   }
 
   lexer_.expect(")");

@@ -48,8 +48,8 @@ class Tokenizer {
 
   /// Get next token.
   ///
-  /// \return Type of `kEOF` token if eof has been reached, otherwise next
-  ///         token.
+  /// \return Type of `kEOF` token if eof has been reached; otherwise return
+  ///         next token.
   Token next() {
     skip_whitespace();
 
@@ -60,9 +60,16 @@ class Tokenizer {
     return parse_token();
   }
 
+ private:
+  /// \brief Checks if the end of the file has been reached.
+  ///
+  /// Note: If the input content consists only of spaces or newlines,
+  /// `is_eof` will return `false` since the end of the file has not been
+  /// reached. However, the `next` method will return an `EOF` token.
+  ///
+  /// \return `true` if reached eof; otherwise return `false.
   constexpr bool is_eof() const { return pos_ >= end_; }
 
- private:
   struct LocationGuard {
     LocationGuard(char const* init_pos, char const** init_ppos,
                   SourceLocation& init_loc)
@@ -389,8 +396,14 @@ class Lexer {
       : idx_(0), mark_(kInvalidMark) {
     Tokenizer tok(content, size);
 
-    while (!tok.is_eof()) {
-      tokens_.push_back(tok.next());
+    while (true) {
+      auto token = tok.next();
+
+      if (token.kind() == TokenKind::kEOF) {
+        break;
+      }
+
+      tokens_.push_back(token);
     }
   }
 
@@ -498,13 +511,7 @@ class Lexer {
 
   void expect(TokenKind kind, Token& out_token) {
     if (!try_consume(kind, out_token)) {
-      std::string err = "Expect " + token_kind_to_string(kind) + " but got ";
-
-      if (is_eof()) {
-        err += "EOF";
-      } else {
-        err += token_kind_to_string(tokens_[idx_].kind());
-      }
+      auto err = error(token_kind_to_string(kind));
 
       CHIBICPP_THROW_ERROR(err);
     }
@@ -512,7 +519,9 @@ class Lexer {
 
   void expect(char const* op) {
     if (!try_consume(op)) {
-      CHIBICPP_THROW_ERROR("Expect ", std::quoted(op));
+      auto err = error(op);
+
+      CHIBICPP_THROW_ERROR(err);
     }
   }
 
@@ -539,6 +548,20 @@ class Lexer {
   /// @}
 
  private:
+  std::string error(std::string const& expect) {
+    std::ostringstream oss;
+
+    oss << "Expect " << std::quoted(expect) << " but got ";
+
+    if (is_eof()) {
+      oss << "EOF";
+    } else {
+      oss << tokens_[idx_];
+    }
+
+    return oss.str();
+  }
+
   size_t idx_;
   size_t mark_;
   std::vector<Token> tokens_;

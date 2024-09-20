@@ -14,7 +14,7 @@ assert() {
   expected="$1"
   input="$2"
 
-  /home/gc/Desktop/chibicpp/build/src/chibicpp "$input" > tmp.s
+  /home/gc/Desktop/chibicpp/build/src/chibicpp <(echo "$input") > tmp.s
   gcc -static -o tmp tmp.s tmp2.o
   ./tmp
   actual="$?"

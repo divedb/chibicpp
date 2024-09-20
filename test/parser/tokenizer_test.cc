@@ -12,28 +12,20 @@ static void usage(char const* prog_name) {
   exit(1);
 }
 
-static string read_all(char const* filename) {
-  ifstream ifs(filename, std::ios::binary | std::ios::ate);
+static std::string read_file(char* path) {
+  // Open and read the file.
+  FILE* fp = fopen(path, "r");
+  if (!fp) fprintf(stderr, "cannot open %s: %s", path, strerror(errno));
 
-  if (!ifs.is_open()) {
-    cerr << "Fail to open: " << filename << endl;
+  int filemax = 10 * 1024 * 1024;
+  char* buf = static_cast<char*>(malloc(filemax));
+  size_t size = fread(buf, 1, filemax - 2, fp);
+  if (!feof(fp)) fprintf(stderr, "%s: file too large", path);
 
-    exit(1);
-  }
-
-  std::streamsize size = ifs.tellg();
-  ifs.seekg(0, std::ios::beg);
-  std::string buffer(size, 0);
-
-  if (!ifs.read(&buffer[0], size)) {
-    cerr << "Error reading file: " << filename << endl;
-
-    exit(1);
-  }
-
-  ifs.close();
-
-  return buffer;
+  // Make sure that the string ends with "\n\0".
+  // if (size == 0 || buf[size - 1] != '\n') buf[size++] = '\n';
+  // buf[size] = '\0';
+  return std::string{buf, size};
 }
 
 int main(int argc, char** argv) {
@@ -43,8 +35,8 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  char const* filename = argv[1];
-  string data = read_all(filename);
+  char* filename = argv[1];
+  string data = read_file(filename);
   Tokenizer stream(data.c_str(), data.size());
 
   while (true) {
