@@ -51,7 +51,14 @@ class Tokenizer {
   /// \return Type of `kEOF` token if eof has been reached; otherwise return
   ///         next token.
   Token next() {
-    skip_whitespace();
+    while (true) {
+      skip_whitespace();
+
+      // Next token is not comment.
+      if (!process_comment()) {
+        break;
+      }
+    }
 
     if (is_eof()) {
       return Token::dummy_eof();
@@ -61,6 +68,26 @@ class Tokenizer {
   }
 
  private:
+  bool process_comment() {
+    const int sz = 2;
+
+    if (advance_if_match("//", sz)) {
+      location_.x_pos += sz;
+      skip_single_line_comment();
+
+      return true;
+    }
+
+    if (advance_if_match("/*", sz)) {
+      location_.x_pos += sz;
+      skip_multiple_line_comment();
+
+      return true;
+    }
+
+    return false;
+  }
+
   /// \brief Checks if the end of the file has been reached.
   ///
   /// Note: If the input content consists only of spaces or newlines,
@@ -307,6 +334,42 @@ class Tokenizer {
 
       return {TokenKind::kIdentifier, guard.location, buf};
     }
+  }
+
+  void skip_single_line_comment() {
+    char ch;
+
+    while (!is_eof() && (ch = *pos_) != '\n') {
+      pos_++;
+      update_source_location(ch);
+    }
+
+    if (!is_eof()) {
+      update_source_location(ch);
+    }
+  }
+
+  void skip_multiple_line_comment() {
+    while (!is_eof()) {
+      char ch = *pos_++;
+      int avail = available();
+      update_source_location(ch);
+
+      // Check if the character is `*` and ensure there is at least one
+      // following character.
+      if (ch == '*' && avail > 0) {
+        ch = *pos_;
+        update_source_location(ch);
+
+        if (ch == '/') {
+          pos_++;
+
+          return;
+        }
+      }
+    }
+
+    CHIBICPP_THROW_ERROR("Unclosed multiple line comment.");
   }
 
   Token parse_token() {
