@@ -82,9 +82,11 @@ static std::unique_ptr<Node> new_sub(std::unique_ptr<Node> lhs,
 /// \return
 std::unique_ptr<Program> Parser::parse_program() {
   MAKE_CALL_STACK(pinfo);
-  std::vector<std::unique_ptr<Function>> prog;
-
   std::set_terminate(print_call_stack);
+
+  // TODO(gc): what's scope for program?
+  scope_ = std::make_unique<Scope>(0, 0);
+  std::vector<std::unique_ptr<Function>> prog;
 
   while (!lexer_.is_eof()) {
     if (is_function(pinfo)) {
@@ -133,10 +135,17 @@ std::vector<std::unique_ptr<Node>> Parser::parse_function_body(
 /// @return
 std::unique_ptr<Function> Parser::parse_function(ParserInfo& pinfo) {
   MAKE_CALL_STACK(pinfo);
-
   locals_.clear();
+
+  // Save the current scope and create a new scope with incremented depth.
+  auto saved_scope = std::move(scope_);
+  scope_ = std::make_unique<Scope>(saved_scope->depth() + 1, Scope::kFnScope,
+                                   saved_scope.get());
+
   auto proto = parse_function_prototype(pinfo);
   auto body = parse_function_body(pinfo);
+
+  scope_ = std::move(saved_scope);
 
   // Update the node's type information.
   for (auto& node : body) {
@@ -213,11 +222,16 @@ std::unique_ptr<Node> Parser::parse_stmt(ParserInfo& pinfo) {
   }
 
   if (lexer_.try_consume("{")) {
+    auto saved_scope = std::move(scope_);
+    scope_ = std::make_unique<Scope>(saved_scope->depth() + 1,
+                                     Scope::kBlockScope, saved_scope.get());
     std::vector<std::unique_ptr<Node>> body;
 
     while (!lexer_.try_consume("}")) {
       body.push_back(parse_stmt(pinfo));
     }
+
+    scope_ = std::move(saved_scope);
 
     auto node = std::make_unique<Node>(NodeKind::kBlock);
     node->body = std::move(body);
@@ -530,22 +544,16 @@ Type* Parser::parse_basetype(ParserInfo& pinfo) {
 }
 
 inline Var* Parser::create_local_var(std::string const& ident, Type* type) {
-  locals_.push_back(std::make_unique<Var>(ident, type, /*offset*/ 0));
-
-  return locals_.back().get();
+  return create_var_impl(locals_, ident, type, /*offset*/ 0);
 }
 
 inline Var* Parser::create_global_var(std::string const& ident, Type* type) {
-  globals_.push_back(std::make_unique<Var>(ident, type));
-
-  return globals_.back().get();
+  return create_var_impl(globals_, ident, type);
 }
 
 inline Var* Parser::create_global_var(std::string const& ident,
                                       std::string const& content, Type* type) {
-  globals_.push_back(std::make_unique<Var>(ident, content, type));
-
-  return globals_.back().get();
+  return create_var_impl(globals_, ident, content, type);
 }
 
 inline std::string Parser::new_global_label() {
@@ -553,28 +561,7 @@ inline std::string Parser::new_global_label() {
 }
 
 Var* Parser::get_var(std::string const& ident) {
-  auto name_compare = [&ident](auto const& var) {
-    return var->name() == ident;
-  };
-
-  // Note: order may matter.
-  // The local variable may shadow on global variable.
-
-  // Search in local list.
-  auto iter = std::find_if(locals_.begin(), locals_.end(), name_compare);
-
-  if (iter != locals_.end()) {
-    return iter->get();
-  }
-
-  // Search in global list.
-  iter = std::find_if(globals_.begin(), globals_.end(), name_compare);
-
-  if (iter != globals_.end()) {
-    return iter->get();
-  }
-
-  return nullptr;
+  return scope_->search_var(ident);
 }
 
 bool Parser::is_function(ParserInfo& pinfo) {
@@ -686,6 +673,10 @@ void Parser::parse_global_var(ParserInfo& pinfo) {
 std::unique_ptr<Node> Parser::parse_stmt_expr(ParserInfo& pinfo) {
   MAKE_CALL_STACK(pinfo);
 
+  auto saved_scope = std::move(scope_);
+  scope_ = std::make_unique<Scope>(saved_scope->depth() + 1, Scope::kBlockScope,
+                                   saved_scope.get());
+
   auto node = std::make_unique<Node>(NodeKind::kStmtExpr);
   node->body.push_back(parse_stmt(pinfo));
 
@@ -694,6 +685,7 @@ std::unique_ptr<Node> Parser::parse_stmt_expr(ParserInfo& pinfo) {
   }
 
   lexer_.expect(")");
+  scope_ = std::move(saved_scope);
 
   // Ensure the last statement in the body is an expression statement.
   if (node->body.back()->kind != NodeKind::kExprStmt) {

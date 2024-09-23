@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "chibicpp/ast/node.hh"
+#include "chibicpp/parser/scope.hh"
 
 namespace chibicpp {
 
@@ -115,6 +116,16 @@ class Parser {
   Var* create_global_var(std::string const& ident, Type* type);
   Var* create_global_var(std::string const& ident, std::string const& content,
                          Type* type);
+  template <typename... Args>
+  Var* create_var_impl(std::vector<std::unique_ptr<Var>>& vars,
+                       Args&&... args) {
+    vars.push_back(std::make_unique<Var>(std::forward<Args>(args)...));
+    auto var = vars.back().get();
+    scope_->add_var(var);
+
+    return var;
+  }
+
   std::string new_global_label();
 
   /// \brief Try to search for the specified variable during parsing.
@@ -136,6 +147,7 @@ class Parser {
   /// @}
 
   int global_label_{};
+  std::unique_ptr<Scope> scope_;
   Lexer& lexer_;
   std::vector<std::unique_ptr<Var>> globals_;
   std::vector<std::unique_ptr<Var>> locals_;

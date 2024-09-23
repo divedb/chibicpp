@@ -1,6 +1,6 @@
 add_library(ast ast/node.cc ast/type.cc)
 add_library(lex lex/tokenizer.cc)
-add_library(parser parser/parser.cc)
+add_library(parser parser/parser.cc parser/scope.cc)
 target_link_libraries(parser PRIVATE ast)
 
 add_library(codegen codegen/backend.cc)
