@@ -1,0 +1,11 @@
+chibicpp_add_test(
+NAME
+    type_test
+HDRS
+SRCS
+    "type_test.cc"
+COPTS
+    ${CHIBICPP_TEST_CXXFLAGS}
+DEPS
+    ${GTEST_LIBRARIES}
+)

@@ -9,7 +9,7 @@
 
 namespace chibicpp {
 
-void Backend::visit_global(Var* var, AstContext& context) {
+void Backend::visit_global(ObserverPtr<Var> var, AstContext& context) {
   // It's fine to define a `.data` section for each global variable.
   // The assembler will merge them into a single section.
   stream_ << ".data\n";
@@ -26,7 +26,7 @@ void Backend::visit_global(Var* var, AstContext& context) {
   }
 }
 
-void Backend::visit_program(Program* prog, AstContext& context) {
+void Backend::visit_program(ObserverPtr<Program> prog, AstContext& context) {
   stream_ << ".intel_syntax noprefix\n";
   prog->accept(*this, context);
 }
@@ -35,13 +35,15 @@ void Backend::visit_program(Program* prog, AstContext& context) {
 ///
 /// For example: we need to move rdi register to rbp-8 and move sil register
 /// to rbp-12.
-/// @code
+///
+/// \code
 /// void foo(int a, char c);
-/// @endcode
+/// \endcode
 ///
 /// \param var A pointer to function argument.
 /// \param idx Index of argument.
-void Backend::visit_function_params(Var* var, int idx, AstContext& context) {
+void Backend::visit_function_params(ObserverPtr<Var> var, int idx,
+                                    AstContext& context) {
   int sz = var->type()->size_in_bytes();
 
   if (sz == 1) {
@@ -53,11 +55,11 @@ void Backend::visit_function_params(Var* var, int idx, AstContext& context) {
   }
 }
 
-void Backend::visit_function_body(Node* node, AstContext& context) {
+void Backend::visit_function_body(ObserverPtr<Node> node, AstContext& context) {
   visit_node(node, context);
 }
 
-void Backend::visit_function(Function* func, AstContext& context) {
+void Backend::visit_function(ObserverPtr<Function> func, AstContext& context) {
   // We need to update the AST context to reflect that we are currently
   // visiting this function.
   context.func = func;
@@ -81,7 +83,7 @@ void Backend::visit_function(Function* func, AstContext& context) {
   stream_ << "  ret\n";
 }
 
-void Backend::visit_node(Node* node, AstContext& context) {
+void Backend::visit_node(ObserverPtr<Node> node, AstContext& context) {
   auto kind = node->kind;
 
   switch (kind) {
@@ -93,15 +95,16 @@ void Backend::visit_node(Node* node, AstContext& context) {
       return;
 
     case NodeKind::kExprStmt:
+      // Each statement would push the result to stack.
+      // We need to compensate here.
       visit_node(node->lhs.get(), context);
-      /// TODO(gc): why add 8?
       stream_ << "  add rsp, 8\n";
       return;
 
     case NodeKind::kVar:
+    case NodeKind::kMember:
       gen_addr(node, context);
 
-      // Array doesn't need to load the value.
       if (!node->type->is_array()) {
         load(node->type);
       }
@@ -317,7 +320,7 @@ void Backend::visit_node(Node* node, AstContext& context) {
   stream_ << "  push rax\n";
 }
 
-void Backend::gen_lval(Node* node, AstContext& context) {
+void Backend::gen_lval(ObserverPtr<Node> node, AstContext& context) {
   if (node->type->is_array()) {
     CHIBICPP_THROW_ERROR("Not a lvalue.");
   }
@@ -328,7 +331,7 @@ void Backend::gen_lval(Node* node, AstContext& context) {
 /// \brief Pushes the given node's address to the stack.
 ///
 /// \param node
-void Backend::gen_addr(Node* node, AstContext& context) {
+void Backend::gen_addr(ObserverPtr<Node> node, AstContext& context) {
   switch (node->kind) {
     case NodeKind::kVar: {
       auto var = node->var;
@@ -347,6 +350,13 @@ void Backend::gen_addr(Node* node, AstContext& context) {
       visit_node(node->lhs.get(), context);
       return;
 
+    case NodeKind::kMember:
+      gen_addr(node->lhs.get(), context);
+      stream_ << "  pop rax\n";
+      stream_ << "  add rax, " << node->member->offset() << '\n';
+      stream_ << "  push rax\n";
+      return;
+
     default:
       // TODO(gc):
       break;
@@ -355,7 +365,7 @@ void Backend::gen_addr(Node* node, AstContext& context) {
   CHIBICPP_THROW_ERROR("Not an lvalue");
 }
 
-void Backend::load(Type* type) {
+void Backend::load(ObserverPtr<Type> type) {
   stream_ << "  pop rax\n";
 
   if (type->size_in_bytes() == 1) {
@@ -367,7 +377,7 @@ void Backend::load(Type* type) {
   stream_ << "  push rax\n";
 }
 
-void Backend::store(Type* type) {
+void Backend::store(ObserverPtr<Type> type) {
   stream_ << "  pop rdi\n";
   stream_ << "  pop rax\n";
 

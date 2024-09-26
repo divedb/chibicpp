@@ -1,12 +1,14 @@
 #pragma once
 
+#include "chibicpp/util/observer_ptr.hh"
+
 namespace chibicpp {
 
 class Function;
 
 class AstContext {
  public:
-  Function* func;  ///< Inside a function.
+  ObserverPtr<Function> func;  ///< Inside a function.
   /// Scope
 };
 

@@ -56,19 +56,25 @@ static std::string read_file(char* path) {
 int main(int argc, char** argv) {
   using namespace chibicpp;
 
-  if (argc != 2) {
+  if (argc < 2 || argc > 3) {
     CHIBICPP_THROW_ERROR(argv[0], ": invalid number of arguments");
   }
 
-  // std::set_terminate(print_stack_trace);
+  std::string content = read_file(argv[1]);
+
+  // if (argc == 3 && strcmp(argv[1], "-f") == 0) {
+  //   content = read_file(argv[2]);
+  // }
+
+  // if (argc == 2) {
+  //   content = argv[1];
+  // }
 
   // Parse program.
-  std::string buf = read_file(argv[1]);
-  Lexer lexer(buf.c_str(), buf.size());
+  Lexer lexer(content.c_str(), content.size());
   Parser parser(lexer);
   auto prog = parser.parse_program();
 
-  // Update function local variable offset and generate code.
   AstContext context;
   Backend codegen(std::cout);
   codegen.visit_program(prog.get(), context);

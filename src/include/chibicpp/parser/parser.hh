@@ -4,6 +4,7 @@
 
 #include "chibicpp/ast/node.hh"
 #include "chibicpp/parser/scope.hh"
+#include "chibicpp/util/observer_ptr.hh"
 
 namespace chibicpp {
 
@@ -14,9 +15,9 @@ class Var;
 
 struct ParserInfo {
   struct CallStack {
-    std::string fname;
-    int lineno;
-    int depth;
+    std::string fname;  ///< Function name.
+    int lineno;         ///< Line number in source file.
+    int depth;          ///< Function call depth.
   };
 
   int depth{};
@@ -25,7 +26,7 @@ struct ParserInfo {
 
 class CallStackGuard {
  public:
-  explicit CallStackGuard(ParserInfo& pinfo, std::string const& fname,
+  explicit CallStackGuard(ParserInfo& pinfo, const std::string& fname,
                           int lineno)
       : pinfo_(pinfo) {
 #ifndef NDEBUG
@@ -54,17 +55,18 @@ class Parser {
   /// \brief Parse a function prototype.
   ///
   /// For example, the prototype could be `int foo(int a, int b)`.
+  ///
   /// \code
   /// int foo(int a, int b);
   /// \endcode
   ///
   /// \return
-  Function::Prototype parse_function_prototype(ParserInfo& pinfo);
+  std::unique_ptr<Function::Prototype> parse_function_prototype();
 
   /// \brief Parse function body.
-  std::vector<std::unique_ptr<Node>> parse_function_body(ParserInfo& pinfo);
+  std::vector<std::unique_ptr<Node>> parse_function_body();
 
-  std::unique_ptr<Function> parse_function(ParserInfo& pinfo);
+  std::unique_ptr<Function> parse_function();
 
   /// stmt ::= "return" expr ";"
   ///        | "if" "(" expr ")" stmt ( "else" stmt )?
@@ -72,21 +74,22 @@ class Parser {
   ///        |
   ///
   /// \return
-  std::unique_ptr<Node> parse_stmt(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_expr(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_assign(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_equality(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_relational(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_add(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_mul(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_unary(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_postfix(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_expr_stmt(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_declaration(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_stmt();
+  std::unique_ptr<Node> parse_expr();
+  std::unique_ptr<Node> parse_assign();
+  std::unique_ptr<Node> parse_equality();
+  std::unique_ptr<Node> parse_relational();
+  std::unique_ptr<Node> parse_add();
+  std::unique_ptr<Node> parse_mul();
+  std::unique_ptr<Node> parse_unary();
+  std::unique_ptr<Node> parse_postfix();
+  std::unique_ptr<Node> parse_struct_ref(std::unique_ptr<Node> node);
+  std::unique_ptr<Node> parse_expr_stmt();
+  std::unique_ptr<Node> parse_declaration();
 
-  Type* parse_type_suffix(Type* base, ParserInfo& pinfo);
-  Type* parse_basetype(ParserInfo& pinfo);
-  Var* parse_func_param(ParserInfo& pinfo);
+  ObserverPtr<Type> parse_type_suffix(ObserverPtr<Type> base);
+  ObserverPtr<Type> parse_basetype();
+  ObserverPtr<Var> parse_func_param();
 
   /// \brief Parse function parameters.
   ///
@@ -95,62 +98,51 @@ class Parser {
   /// function parameter is also considered as part of locals.
   ///
   /// \return
-  std::vector<Var*> parse_func_params(ParserInfo& pinfo);
+  std::vector<ObserverPtr<Var>> parse_func_params();
 
   /// \brief primary ::= "(" expr ")" | ident | num
   /// \return
-  std::unique_ptr<Node> parse_primary(ParserInfo& pinfo);
-  std::vector<std::unique_ptr<Node>> parse_func_args(ParserInfo& pinfo);
-  void parse_global_var(ParserInfo& pinfo);
-  std::unique_ptr<Node> parse_stmt_expr(ParserInfo& pinfo);
+  std::unique_ptr<Node> parse_primary();
+  std::vector<std::unique_ptr<Node>> parse_func_args();
+  void parse_global_var();
+  std::unique_ptr<Node> parse_stmt_expr();
+
+  ObserverPtr<Type> parse_struct_decl();
+  std::unique_ptr<Member> parse_struct_member();
 
   /// \name Utility method
   /// @{
 
-  /// \brief Create local variable withe specified `ident` and `type`.
+  /// \brief Generates a unique name for an anonymous struct.
   ///
-  /// \param ident The name of the variable.
-  /// \param type The type of the variable.
-  /// \return A pointer to the created variable.
-  Var* create_local_var(std::string const& ident, Type* type);
-  Var* create_global_var(std::string const& ident, Type* type);
-  Var* create_global_var(std::string const& ident, std::string const& content,
-                         Type* type);
-  template <typename... Args>
-  Var* create_var_impl(std::vector<std::unique_ptr<Var>>& vars,
-                       Args&&... args) {
-    vars.push_back(std::make_unique<Var>(std::forward<Args>(args)...));
-    auto var = vars.back().get();
-    scope_->add_var(var);
+  /// This function provides a mechanism to generate an anonymous name
+  /// for structures that do not have an explicit name. For example:
+  ///
+  /// \code
+  /// struct { int a; int b; } c;
+  /// \endcode
+  ///
+  /// \param lineno The line number where the struct is declared.
+  /// \return A string representing the generated anonymous struct name.
+  static std::string gen_anonymous_struct_name(int lineno) {
+    static int unique_id = 0;
 
-    return var;
+    return "__anonymous_struct__" + std::to_string(unique_id++) + ':' +
+           std::to_string(lineno);
   }
-
-  std::string new_global_label();
-
-  /// \brief Try to search for the specified variable during parsing.
-  ///
-  /// The variable's lifetime is controlled by `globals_` and `locals_`.
-  ///
-  /// \param ident The name of the variable.
-  /// \return A pointer to `Var` if it exists, otherwise NULL.
-  Var* get_var(std::string const& ident);
 
   /// \brief Determine whether the next top-level item is a function or a global
   ///        variable by looking ahead input tokens.
   ///
   /// \return `true` if it's a function, otherwise `false`.
-  bool is_function(ParserInfo& pinfo);
+  bool is_function();
 
   bool is_typename();
 
   /// @}
 
-  int global_label_{};
-  std::unique_ptr<Scope> scope_;
   Lexer& lexer_;
-  std::vector<std::unique_ptr<Var>> globals_;
-  std::vector<std::unique_ptr<Var>> locals_;
+  VarScope scope_;
 };
 
 }  // namespace chibicpp

@@ -41,7 +41,7 @@ void add_type(Node* node) {
     case NodeKind::kLe:
     case NodeKind::kFunCall:
     case NodeKind::kNum:
-      node->type = TypeMgr::get_primitive(kInt);
+      node->type = TypeMgr::get_integer(Type::kInt);
 
       return;
 
@@ -56,6 +56,9 @@ void add_type(Node* node) {
       node->type = node->var->type();
 
       return;
+
+    case NodeKind::kMember:
+      node->type = node->member->type();
 
     case NodeKind::kAddr:
       // TODO(gc): `int a[8]; int* b = &a`.
@@ -89,27 +92,17 @@ void add_type(Node* node) {
 std::string Type::to_string() const {
   std::string str;
 
-  static std::map<int, std::string> primitive_type_descriptor{
+  static std::map<TypeID, std::string> primitive_type_descriptor{
       {kSigned, "signed"}, {kUnsigned, "unsigned"},  {kShort, "short"},
       {kLong, "long"},     {kLongLong, "long long"}, {kChar, "char"},
       {kInt, "int"},       {kFloat, "float"},        {kDouble, "double"}};
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-enum-enum-conversion"
-
-#define INT_INITIALIZER(...) \
-  std::initializer_list<int> { __VA_ARGS__ }
-
-  for (auto key : INT_INITIALIZER(kSigned, kUnsigned, kShort, kLong, kLongLong,
-                                  kChar, kInt, kFloat, kDouble)) {
-    if (kind_ & key) {
+  for (auto key : {kSigned, kUnsigned, kShort, kLong, kLongLong, kChar, kInt,
+                   kFloat, kDouble}) {
+    if (id() & key) {
       str += primitive_type_descriptor[key];
     }
   }
-
-#undef INT_INITIALIZER
-
-#pragma GCC diagnostic pop
 
   if (is_pointer()) {
     str = base_->to_string() + '*';

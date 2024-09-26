@@ -1,0 +1,11 @@
+chibicpp_add_test(
+NAME
+    observer_ptr_test
+HDRS
+SRCS
+    "observer_ptr_test.cc"
+COPTS
+    ${CHIBICPP_TEST_CXXFLAGS}
+DEPS
+    ${GTEST_LIBRARIES}
+)

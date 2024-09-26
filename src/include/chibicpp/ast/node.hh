@@ -10,39 +10,50 @@
 #include "chibicpp/ast/type.hh"
 #include "chibicpp/ast/visitor.hh"
 #include "chibicpp/lex/token.hh"
+#include "chibicpp/util/observer_ptr.hh"
 
 namespace chibicpp {
 
+class Member;
+
 class Var {
  public:
+  /// Bit shift for local variable's offset.
   static constexpr auto kOffsetShift = 1;
-  static constexpr auto kTypeMask = 1;
 
-  /// @name Constructors.
+  /// This mask is used to determine if a variable is global
+  /// by checking the lowest bit of the offset.
+  static constexpr auto kGlobalVarTypeMask = 0x01;
+
+  /// @name Constructor
   /// @{
 
   /// \brief Construct a local variable.
   ///
   /// \param name The name of the variable.
   /// \param type The type of the variable.
-  /// \param offset The offset of the variable from base pointer.
-  Var(std::string const& name, Type* type, int offset)
+  /// \param offset The offset of the variable from base pointer (rbp).
+  Var(const std::string& name, ObserverPtr<Type> type, int offset)
       : name_{name}, type_{type}, offset_{offset << kOffsetShift} {}
 
   /// \brief Construct a global variable.
   ///
   /// \param name The name of the variable.
   /// \param type The type of the variable.
-  Var(std::string const& name, Type* type)
-      : name_{name}, type_{type}, offset_{kTypeMask} {}
+  Var(std::string const& name, ObserverPtr<Type> type)
+      : name_{name}, type_{type}, offset_{kGlobalVarTypeMask} {}
 
   /// \brief Construct a global variable of string literal type.
   ///
-  /// \param name The name of the variable.
+  /// \param name The name of the string literal.
   /// \param content The content of string literal.
   /// \param type The type of the variable.
-  Var(std::string const& name, std::string const& content, Type* type)
-      : name_{name}, type_{type}, offset_{kTypeMask}, literal_{content} {}
+  Var(std::string const& name, std::string const& content,
+      ObserverPtr<Type> type)
+      : name_{name},
+        literal_{content},
+        type_{type},
+        offset_{kGlobalVarTypeMask} {}
 
   /// @}
 
@@ -56,30 +67,53 @@ class Var {
   /// Note: This is non-owning pointer.
   ///
   /// \return Type of variable.
-  Type* type() const { return type_; }
+  ObserverPtr<Type> type() const { return type_; }
 
   /// \brief Get offset of the variable.
   ///
   /// Note: This only make sense when this variable is local.
   ///
   /// \return Offset of variable.
-  int offset() const { return offset_ >> kOffsetShift; }
+  int offset() const {
+    assert(is_local());
+
+    return offset_ >> kOffsetShift;
+  }
 
   /// \brief Get string literal of the variable.
   ///
-  /// \return A view of string literal.
-  std::string_view string_literal() const { return literal_; }
+  /// \return A string literal.
+  const std::string& string_literal() const {
+    assert(is_string_literal());
 
+    return literal_;
+  }
+
+  /// \brief Check if the variable is local.
+  ///
+  /// \return `true` if the variable is local, otherwise `false`.
   bool is_local() const { return !is_global(); }
-  bool is_global() const { return offset_ & kTypeMask; }
+
+  /// \brief Check if the variable is global.
+  ///
+  /// \return `true` if the variable is global, otherwise `false`.
+  bool is_global() const { return offset_ & kGlobalVarTypeMask; }
+
+  /// \brief Check if the variable is string literal.
+  ///
+  /// \return `true` if the variable is string literal, otherwise `false`.
   bool is_string_literal() const { return is_global() && !literal_.empty(); }
+
+  /// \brief Update variable's offset.
+  ///
+  /// \param offset New offset.
   void set_offset(int offset) { offset_ = offset << kOffsetShift; }
 
  private:
-  std::string name_;     ///< Do we shared the memory buffer
-  Type* type_;           ///< Variable type.
-  int offset_;           ///< Local variable offset from rbp register.
-  std::string literal_;  ///< String literal.
+  std::string name_;        ///< Do we shared the memory buffer
+  std::string literal_;     ///< String literal.
+  ObserverPtr<Type> type_;  ///< Variable type.
+  int offset_;              ///< Local variable offset from rbp register.
 };
 
 /// AST node.
@@ -96,6 +130,7 @@ enum class NodeKind {
   kLt,        ///< <
   kLe,        ///< <=
   kAssign,    ///< =
+  kMember,    ///< . (struct member access)
   kAddr,      ///< unary &
   kDeref,     ///< unary *
   kReturn,    ///< "return"
@@ -177,7 +212,7 @@ struct Node {
   }
 
   NodeKind kind;              ///< Node kind.
-  Type* type{};               ///< Type, e.g. int or pointer to int
+  ObserverPtr<Type> type;     ///< Type, e.g. int or pointer to int
   std::unique_ptr<Node> lhs;  ///< Left-hand node.
   std::unique_ptr<Node> rhs;  ///< Right-hand node.
 
@@ -191,39 +226,43 @@ struct Node {
   /// Block or statement expression.
   std::vector<std::unique_ptr<Node>> body;
 
+  /// Struct member access.
+  ObserverPtr<Member> member;
+
   /// Function call.
   std::string func_name;
   std::vector<std::unique_ptr<Node>> args;
 
-  Var* var;  ///< Used if kind == kVar.
-  long val;  ///< Used if kind == kNum.
+  ObserverPtr<Var> var;  ///< Used if kind == kVar.
+  long val;              ///< Used if kind == kNum.
 };
 
 class Function {
  public:
   struct Prototype {
-    Type* ret_type;            ///< Return type.
-    std::string fname;         ///< Function name.
-    std::vector<Var*> params;  ///< Parameters.
+    ObserverPtr<Type> ret_type;            ///< Return type.
+    std::string fname;                     ///< Function name.
+    std::vector<ObserverPtr<Var>> params;  ///< Parameters.
   };
 
-  /// \brief Construct a function with the given function prototype, body and
-  ///        local variables.
+  /// \brief Construct a function with the specified function prototype, body
+  ///        and local variables.
   ///
   /// \param prototype The prototype of the function.
   /// \param body The function body.
   /// \param locals Local variables within the function.
-  Function(Prototype const& prototype, std::vector<std::unique_ptr<Node>> body,
+  Function(std::unique_ptr<Prototype> prototype,
+           std::vector<std::unique_ptr<Node>> body,
            std::vector<std::unique_ptr<Var>> locals)
-      : stack_size_(0),
-        prototype_(prototype),
-        body_(std::move(body)),
-        locals_(std::move(locals)) {
-    update_offset();
+      : stack_size_{0},
+        prototype_{std::move(prototype)},
+        body_{std::move(body)},
+        locals_{std::move(locals)} {
+    update_var_offset();
   }
 
   void accept(AstVisitor& visitor, AstContext& context) {
-    auto& params = prototype_.params;
+    auto& params = prototype_->params;
 
     for (auto i = 0; i < static_cast<int>(params.size()); ++i) {
       visitor.visit_function_params(params[i], i, context);
@@ -248,7 +287,7 @@ class Function {
   /// \brief Get function name.
   ///
   /// \return
-  std::string name() const { return prototype_.fname; }
+  std::string name() const { return prototype_->fname; }
 
   /// @name Iterators
   /// @{
@@ -256,15 +295,15 @@ class Function {
   /// \brief Returns an iterator to the beginning of the parameter list.
   ///
   /// \return An iterator pointing to the first element of the parameters.
-  auto param_begin() { return prototype_.params.begin(); }
-  auto param_begin() const { return prototype_.params.begin(); }
+  auto param_begin() { return prototype_->params.begin(); }
+  auto param_begin() const { return prototype_->params.begin(); }
 
   /// \brief Returns an iterator to the end of the parameter list.
   ///
   /// \return An iterator pointing to the end (past-the-last) element of the
   ///         parameters.
-  auto param_end() { return prototype_.params.end(); }
-  auto param_end() const { return prototype_.params.end(); }
+  auto param_end() { return prototype_->params.end(); }
+  auto param_end() const { return prototype_->params.end(); }
 
   /// \brief Returns an iterator to the beginning of the function body.
   ///
@@ -291,8 +330,13 @@ class Function {
     }
   }
 
+  /// \brief Get number of local variables inside this function.
+  ///
+  /// \return Number of local variables.
+  int local_var_count() const { return locals_.size(); }
+
  private:
-  void update_offset() {
+  void update_var_offset() {
     int offset = 0;
 
     // TODO(gc): Investigate why we place variables that are used far away
@@ -307,7 +351,7 @@ class Function {
   }
 
   int stack_size_;
-  Prototype prototype_;
+  std::unique_ptr<Prototype> prototype_;
   std::vector<std::unique_ptr<Node>> body_;
   std::vector<std::unique_ptr<Var>> locals_;
 };
@@ -365,7 +409,7 @@ class Program {
   std::vector<std::unique_ptr<Function>> funcs_;
 };
 
-inline std::unique_ptr<Node> make_a_var(Var* var) {
+inline std::unique_ptr<Node> make_a_var(ObserverPtr<Var> var) {
   auto node = std::make_unique<Node>(NodeKind::kVar);
   node->var = var;
 
