@@ -8,9 +8,7 @@
 #include "chibicpp/parser/parser.hh"
 #include "chibicpp/util/stack_trace.hh"
 
-static void print_stack_trace() {
-  std::cout << chibicpp::stacktrace(true) << std::endl;
-}
+static void print_stack_trace() { chibicpp::stack_tracer.dump(std::cout); }
 
 // static std::string read_all(char const* filename) {
 //   std::ifstream ifs(filename, std::ios::binary | std::ios::ate);
@@ -60,7 +58,9 @@ int main(int argc, char** argv) {
     CHIBICPP_THROW_ERROR(argv[0], ": invalid number of arguments");
   }
 
+  std::set_terminate(print_stack_trace);
   std::string content = read_file(argv[1]);
+  // std::string content = argv[1];
 
   // if (argc == 3 && strcmp(argv[1], "-f") == 0) {
   //   content = read_file(argv[2]);

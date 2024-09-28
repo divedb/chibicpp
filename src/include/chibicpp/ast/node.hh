@@ -116,125 +116,261 @@ class Var {
   int offset_;              ///< Local variable offset from rbp register.
 };
 
-/// AST node.
-enum class NodeKind {
-  kAdd,       ///< num + num
-  kPtrAdd,    ///< ptr + num or num + ptr
-  kSub,       ///< -
-  kPtrSub,    ///< ptr - num
-  kPtrDiff,   ///< ptr - ptr
-  kMul,       ///< *
-  kDiv,       ///< /
-  kEq,        ///< ==
-  kNe,        ///< !=
-  kLt,        ///< <
-  kLe,        ///< <=
-  kAssign,    ///< =
-  kMember,    ///< . (struct member access)
-  kAddr,      ///< unary &
-  kDeref,     ///< unary *
-  kReturn,    ///< "return"
-  kIf,        ///< "if"
-  kWhile,     ///< "while"
-  kFor,       ///< "for"
-  kBlock,     ///< {...}
-  kFunCall,   ///< Function call
-  kExprStmt,  ///< Expression statement
-  kStmtExpr,  ///< Statement expression
-  kVar,       ///< Variable
-  kNum,       ///< Integer
-  kEmpty,     ///< Empty statement
-};
+class Node {
+ public:
+  /// AST node.
+  enum NodeID {
+    kAdd,       ///< num + num
+    kPtrAdd,    ///< ptr + num or num + ptr
+    kSub,       ///< -
+    kPtrSub,    ///< ptr - num
+    kPtrDiff,   ///< ptr - ptr
+    kMul,       ///< *
+    kDiv,       ///< /
+    kEq,        ///< ==
+    kNe,        ///< !=
+    kLt,        ///< <
+    kLe,        ///< <=
+    kAssign,    ///< =
+    kMember,    ///< . (struct member access)
+    kAddr,      ///< unary &
+    kDeref,     ///< unary *
+    kReturn,    ///< "return"
+    kIf,        ///< "if"
+    kWhile,     ///< "while"
+    kFor,       ///< "for"
+    kBlock,     ///< {...}
+    kFunCall,   ///< Function call
+    kExprStmt,  ///< Expression statement
+    kStmtExpr,  ///< Statement expression
+    kVar,       ///< Variable
+    kNum,       ///< Integer
+    kEmpty,     ///< Empty statement
+  };
 
-struct Node {
-  explicit Node(NodeKind kind) : kind(kind) {}
+  explicit Node(NodeID id) : id_{id} {}
 
-  /// \brief Check if this node is an integer.
+  NodeID id() const { return id_; }
+
+  ObserverPtr<Type> type() const { return type_; }
+
+  void update_type();
+
+  /// \brief Make a deep clone of the node.
   ///
-  /// \return `true` if this node is an integer, otherwise false.
-  bool is_integer() const;
+  /// \return
+  std::unique_ptr<Node> clone() const;
 
-  /// \brief Check if this node has a base type.
+  /// \brief Make a node type of variable.
   ///
-  /// For pointer type, like `int*`, the base type is `int`.
-  ///
-  /// \return The base type of this node if it exists, otherwise nullptr.
-  bool has_base() const;
+  /// \param var A pointer to variable.
+  /// \return
+  static std::unique_ptr<Node> make_a_var(ObserverPtr<Var> var) {
+    auto node = std::make_unique<Node>(Node::kVar);
 
-  auto block_begin() { return body.begin(); }
-  auto block_begin() const { return body.begin(); }
-  auto block_end() { return body.end(); }
-  auto block_end() const { return body.end(); }
-  auto args_begin() { return args.begin(); }
-  auto args_begin() const { return args.begin(); }
-  auto args_end() { return args.end(); }
-  auto args_end() const { return args.end(); }
+    node->var_ = var;
+    node->update_type();
 
-  std::unique_ptr<Node> clone() {
-    auto cloned = std::make_unique<Node>(kind);
-
-    cloned->type = this->type;
-    cloned->func_name = this->func_name;
-    cloned->val = this->val;
-    cloned->var = this->var;
-
-    if (lhs) {
-      cloned->lhs = lhs->clone();
-    }
-    if (rhs) {
-      cloned->rhs = rhs->clone();
-    }
-    if (cond) {
-      cloned->cond = cond->clone();
-    }
-    if (then) {
-      cloned->then = then->clone();
-    }
-    if (els) {
-      cloned->els = els->clone();
-    }
-    if (init) {
-      cloned->init = init->clone();
-    }
-    if (inc) {
-      cloned->inc = inc->clone();
-    }
-
-    for (auto& n : body) {
-      cloned->body.push_back(n->clone());
-    }
-
-    for (auto& arg : args) {
-      cloned->args.push_back(arg->clone());
-    }
-
-    return cloned;
+    return node;
   }
 
-  NodeKind kind;              ///< Node kind.
-  ObserverPtr<Type> type;     ///< Type, e.g. int or pointer to int
-  std::unique_ptr<Node> lhs;  ///< Left-hand node.
-  std::unique_ptr<Node> rhs;  ///< Right-hand node.
+  static std::unique_ptr<Node> make_a_number(long v) {
+    auto node = std::make_unique<Node>(Node::kNum);
+
+    node->num_ = v;
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_binary(NodeID id,
+                                             std::unique_ptr<Node> lhs,
+                                             std::unique_ptr<Node> rhs) {
+    auto node = std::make_unique<Node>(id);
+
+    node->lhs_ = std::move(lhs);
+    node->rhs_ = std::move(rhs);
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_unary(NodeID id,
+                                            std::unique_ptr<Node> expr) {
+    auto node = make_a_binary(id, std::move(expr), nullptr);
+
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_member(std::unique_ptr<Node> expr,
+                                             ObserverPtr<Member> member) {
+    auto node = std::make_unique<Node>(Node::kMember);
+
+    node->lhs_ = std::move(expr);
+    node->member_ = member;
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_if(std::unique_ptr<Node> cond,
+                                         std::unique_ptr<Node> then,
+                                         std::unique_ptr<Node> els) {
+    auto node = std::make_unique<Node>(Node::kIf);
+
+    node->cond_ = std::move(cond);
+    node->then_ = std::move(then);
+    node->else_ = std::move(els);
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_while(std::unique_ptr<Node> cond,
+                                            std::unique_ptr<Node> then) {
+    auto node = std::make_unique<Node>(Node::kWhile);
+
+    node->cond_ = std::move(cond);
+    node->then_ = std::move(then);
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_for(std::unique_ptr<Node> init,
+                                          std::unique_ptr<Node> cond,
+                                          std::unique_ptr<Node> inc,
+                                          std::unique_ptr<Node> then) {
+    auto node = std::make_unique<Node>(Node::kFor);
+
+    node->init_ = std::move(init);
+    node->cond_ = std::move(cond);
+    node->inc_ = std::move(inc);
+    node->then_ = std::move(then);
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_function_call(
+      const std::string& func_name, std::vector<std::unique_ptr<Node>> args) {
+    auto node = std::make_unique<Node>(Node::kFunCall);
+
+    node->func_name_ = func_name;
+    node->args_ = std::move(args);
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_stmt_expr(
+      std::vector<std::unique_ptr<Node>> body) {
+    auto node = std::make_unique<Node>(Node::kStmtExpr);
+
+    // The last node is an expression statement.
+    // But we need its expression as the return type.
+    auto& lhs = body.back()->lhs_;
+    body.back() = std::move(lhs);
+    node->body_ = std::move(body);
+    node->update_type();
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_a_block(
+      std::vector<std::unique_ptr<Node>> body) {
+    auto node = std::make_unique<Node>(Node::kBlock);
+
+    node->body_ = std::move(body);
+
+    return node;
+  }
+
+  static std::unique_ptr<Node> make_add(std::unique_ptr<Node> lhs,
+                                        std::unique_ptr<Node> rhs) {
+    if (lhs->type()->is_integer() && rhs->type()->is_integer()) {
+      return make_a_binary(Node::kAdd, std::move(lhs), std::move(rhs));
+    }
+
+    if (lhs->type()->base() && rhs->type()->is_integer()) {
+      return make_a_binary(Node::kPtrAdd, std::move(lhs), std::move(rhs));
+    }
+
+    if (lhs->type()->is_integer() && rhs->type()->base()) {
+      return make_a_binary(Node::kPtrAdd, std::move(rhs), std::move(lhs));
+    }
+
+    __builtin_unreachable();
+  }
+
+  static std::unique_ptr<Node> make_sub(std::unique_ptr<Node> lhs,
+                                        std::unique_ptr<Node> rhs) {
+    if (lhs->type()->is_integer() && rhs->type()->is_integer()) {
+      return make_a_binary(Node::kSub, std::move(lhs), std::move(rhs));
+    }
+
+    if (lhs->type()->base() && rhs->type()->is_integer()) {
+      return make_a_binary(Node::kPtrSub, std::move(lhs), std::move(rhs));
+    }
+
+    if (lhs->type()->base() && rhs->type()->base()) {
+      return make_a_binary(Node::kPtrDiff, std::move(lhs), std::move(rhs));
+    }
+
+    __builtin_unreachable();
+  }
+
+  size_t block_size() const { return body_.size(); }
+  auto block_begin() { return body_.begin(); }
+  auto block_begin() const { return body_.begin(); }
+  auto block_end() { return body_.end(); }
+  auto block_end() const { return body_.end(); }
+
+  size_t args_size() const { return args_.size(); }
+  auto args_begin() { return args_.begin(); }
+  auto args_begin() const { return args_.begin(); }
+  auto args_end() { return args_.end(); }
+  auto args_end() const { return args_.end(); }
+
+  ObserverPtr<Node> lhs() const { return lhs_.get(); }
+  ObserverPtr<Node> rhs() const { return rhs_.get(); }
+  ObserverPtr<Node> cond() const { return cond_.get(); }
+  ObserverPtr<Node> then() const { return then_.get(); }
+  ObserverPtr<Node> els() const { return else_.get(); }
+  ObserverPtr<Node> init() const { return init_.get(); }
+  ObserverPtr<Node> inc() const { return inc_.get(); }
+
+  ObserverPtr<Var> var() const { return var_; }
+  ObserverPtr<Member> member() const { return member_; }
+  long number() const { return num_; }
+  const std::string& func_name() const { return func_name_; }
+
+ private:
+  NodeID id_;                  ///< Node kind.
+  ObserverPtr<Type> type_;     ///< Type, e.g. int or pointer to int
+  ObserverPtr<Var> var_;       ///< Used if kind == kVar.
+  long num_;                   ///< Used if kind == kNum.
+  std::unique_ptr<Node> lhs_;  ///< Left-hand node.
+  std::unique_ptr<Node> rhs_;  ///< Right-hand node.
 
   /// "if", "while" or "for" statement.
-  std::unique_ptr<Node> cond;
-  std::unique_ptr<Node> then;
-  std::unique_ptr<Node> els;
-  std::unique_ptr<Node> init;
-  std::unique_ptr<Node> inc;
+  std::unique_ptr<Node> cond_;
+  std::unique_ptr<Node> then_;
+  std::unique_ptr<Node> else_;
+  std::unique_ptr<Node> init_;
+  std::unique_ptr<Node> inc_;
 
   /// Block or statement expression.
-  std::vector<std::unique_ptr<Node>> body;
-
-  /// Struct member access.
-  ObserverPtr<Member> member;
+  std::vector<std::unique_ptr<Node>> body_;
 
   /// Function call.
-  std::string func_name;
-  std::vector<std::unique_ptr<Node>> args;
+  std::string func_name_;
+  std::vector<std::unique_ptr<Node>> args_;
 
-  ObserverPtr<Var> var;  ///< Used if kind == kVar.
-  long val;              ///< Used if kind == kNum.
+  /// Struct member access.
+  ObserverPtr<Member> member_;
 };
 
 class Function {
@@ -253,24 +389,16 @@ class Function {
   /// \param locals Local variables within the function.
   Function(std::unique_ptr<Prototype> prototype,
            std::vector<std::unique_ptr<Node>> body,
-           std::vector<std::unique_ptr<Var>> locals)
+           std::vector<std::unique_ptr<Var>> locals,
+           std::vector<std::unique_ptr<Var>> string_literals,
+           std::vector<std::unique_ptr<Var>> statics)
       : stack_size_{0},
         prototype_{std::move(prototype)},
         body_{std::move(body)},
-        locals_{std::move(locals)} {
+        locals_{std::move(locals)},
+        string_literals_{std::move(string_literals)},
+        statics_{std::move(statics)} {
     update_var_offset();
-  }
-
-  void accept(AstVisitor& visitor, AstContext& context) {
-    auto& params = prototype_->params;
-
-    for (auto i = 0; i < static_cast<int>(params.size()); ++i) {
-      visitor.visit_function_params(params[i], i, context);
-    }
-
-    for (auto& node : body_) {
-      visitor.visit_function_body(node.get(), context);
-    }
   }
 
   /// \brief Get the stack size required for this function.
@@ -318,6 +446,16 @@ class Function {
   auto body_end() { return body_.end(); }
   auto body_end() const { return body_.end(); }
 
+  auto string_literal_begin() { return string_literals_.begin(); }
+  auto string_literal_begin() const { return string_literals_.begin(); }
+  auto string_literal_end() { return string_literals_.end(); }
+  auto string_literal_end() const { return string_literals_.end(); }
+
+  auto static_begin() { return statics_.begin(); }
+  auto static_begin() const { return statics_.begin(); }
+  auto static_end() { return statics_.end(); }
+  auto static_end() const { return statics_.end(); }
+
   /// @}
 
   /// \brief This method is used for debugging purposes.
@@ -353,7 +491,9 @@ class Function {
   int stack_size_;
   std::unique_ptr<Prototype> prototype_;
   std::vector<std::unique_ptr<Node>> body_;
-  std::vector<std::unique_ptr<Var>> locals_;
+  std::vector<std::unique_ptr<Var>> locals_;           ///< The local variables.
+  std::vector<std::unique_ptr<Var>> string_literals_;  ///< The string literals.
+  std::vector<std::unique_ptr<Var>> statics_;  ///< The static variables.
 };
 
 class Program {
@@ -362,16 +502,6 @@ class Program {
   explicit Program(std::vector<std::unique_ptr<Var>> globals,
                    std::vector<std::unique_ptr<Function>> other)
       : globals_(std::move(globals)), funcs_(std::move(other)) {}
-
-  void accept(AstVisitor& visitor, AstContext& context) {
-    for (auto& var : globals_) {
-      visitor.visit_global(var.get(), context);
-    }
-
-    for (auto& func : funcs_) {
-      visitor.visit_function(func.get(), context);
-    }
-  }
 
   /// \name Iterators.
   /// @{
@@ -405,40 +535,8 @@ class Program {
   /// @}
 
  private:
-  std::vector<std::unique_ptr<Var>> globals_;
+  std::vector<std::unique_ptr<Var>> globals_;  ///< The global variables.
   std::vector<std::unique_ptr<Function>> funcs_;
 };
-
-inline std::unique_ptr<Node> make_a_var(ObserverPtr<Var> var) {
-  auto node = std::make_unique<Node>(NodeKind::kVar);
-  node->var = var;
-
-  return node;
-}
-
-inline std::unique_ptr<Node> make_a_number(long v) {
-  auto node = std::make_unique<Node>(NodeKind::kNum);
-  node->val = v;
-
-  return node;
-}
-
-inline std::unique_ptr<Node> make_a_binary(NodeKind kind,
-                                           std::unique_ptr<Node> lhs,
-                                           std::unique_ptr<Node> rhs) {
-  auto node = std::make_unique<Node>(kind);
-  node->lhs = std::move(lhs);
-  node->rhs = std::move(rhs);
-
-  return node;
-}
-
-inline std::unique_ptr<Node> make_a_unary(NodeKind kind,
-                                          std::unique_ptr<Node> expr) {
-  auto node = std::make_unique<Node>(kind);
-  node->lhs = std::move(expr);
-
-  return node;
-}
 
 }  // namespace chibicpp

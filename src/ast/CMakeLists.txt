@@ -1,0 +1,14 @@
+chibicpp_add_library(
+NAME
+    ast
+HDRS
+SRCS
+    "node.cc"
+    "type.cc"
+COPTS
+    ${CHIBICPP_LIB_CXXFLAGS}
+DEPS
+    util
+ALIAS
+    chibicpp::ast
+)

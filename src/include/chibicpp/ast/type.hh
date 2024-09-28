@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -475,7 +476,7 @@ class Member {
 
   constexpr void set_index(int index) { index_ = index; }
   constexpr void set_offset(int offset) { offset_ = offset; }
-  constexpr void set_owner(StructType* owner) { owner_ = owner; }
+  constexpr void set_owner(ObserverPtr<StructType> owner) { owner_ = owner; }
 
   /// @}
 
@@ -489,6 +490,15 @@ class Member {
   std::string name() const { return name_; }
 
   /// @}
+
+  friend std::ostream& operator<<(std::ostream& os, const Member& mem) {
+    os << "[name  ]: " << mem.name_ << '\n';
+    os << "[type  ]: " << mem.type_->to_string() << '\n';
+    os << "[index ]: " << mem.index_ << '\n';
+    os << "[offset]: " << mem.offset_;
+
+    return os;
+  }
 
  private:
   int index_;   ///< Index of the member in the order it was declared.
@@ -522,14 +532,17 @@ class StructType : public Type {
         members_{std::move(members)} {
     int offset = 0;
 
-    for (size_t i = 0; i < members.size(); ++i) {
-      members[i]->set_offset(offset);
-      members[i]->set_index(i);
-      members[i]->set_owner(this);
-      offset += members[i]->type()->size_in_bytes();
+    for (size_t i = 0; i < members_.size(); ++i) {
+      members_[i]->set_offset(offset);
+      members_[i]->set_index(i);
+      members_[i]->set_owner(this);
+      offset += members_[i]->type()->size_in_bytes();
     }
   }
 
+  /// \brief Get the name of struct.
+  ///
+  /// \return The name of struct.
   std::string name() const { return name_; }
 
   size_t size_in_bytes() const override {
@@ -539,20 +552,27 @@ class StructType : public Type {
                            });
   }
 
+  /// \brief Dump the member infomration inside this struct.
+  void dump_member_info(std::ostream& os) const {
+    for (auto const& mem : members_) {
+      os << *mem.get() << std::endl;
+    }
+  }
+
   /// \brief Get a member from the struct by its name.
   ///
   /// \param name The name of the member to search for.
   /// \return A non owning pointer to the member if it exists, nullptr
   ///         otherwise.
   ObserverPtr<Member> find_member(const std::string& name) const {
-    auto name_match = [&name](auto const& m) { return m->name() == name; };
+    auto name_match = [&name](const auto& m) { return m->name() == name; };
     auto iter = std::find_if(members_.begin(), members_.end(), name_match);
 
     if (iter == members_.end()) {
       return nullptr;
     }
 
-    return ObserverPtr<Member>{iter->get()};
+    return iter->get();
   }
 
   bool is_packed() const { return meta_ & kIsPacked; }
@@ -610,9 +630,6 @@ class StructType : public Type {
   std::string name_;
   std::vector<std::unique_ptr<Member>> members_;
 };
-
-class Node;
-void add_type(Node* node);
 
 /// \brief This class manages type information.
 ///

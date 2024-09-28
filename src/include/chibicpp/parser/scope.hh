@@ -178,7 +178,14 @@ class VarScope {
   /// \return A pointer to the newly created string literal variable.
   ObserverPtr<Var> create_string_literal(const std::string& content,
                                          ObserverPtr<Type> type) {
-    return create_var_impl(globals_, create_global_label(), content, type);
+    auto label = create_label_constant();
+
+    // Check current scope.
+    if (cur_scope_->flags() & Scope::kTranslationUnitScope) {
+      return create_var_impl(globals_, label, content, type);
+    } else {
+      return create_var_impl(string_literals_, label, content, type);
+    }
   }
 
   std::vector<std::unique_ptr<Var>> release_globals() {
@@ -191,6 +198,23 @@ class VarScope {
   std::vector<std::unique_ptr<Var>> release_locals() {
     auto ret = std::move(locals_);
     locals_.clear();
+
+    return ret;
+  }
+
+  /// \brief Release the string literals inside the function scope.
+  ///
+  /// \return A vector of string literals inside the function scope.
+  std::vector<std::unique_ptr<Var>> release_string_literals() {
+    auto ret = std::move(string_literals_);
+    string_literals_.clear();
+
+    return ret;
+  }
+
+  std::vector<std::unique_ptr<Var>> release_statics() {
+    auto ret = std::move(statics_);
+    statics_.clear();
 
     return ret;
   }
@@ -247,6 +271,10 @@ class VarScope {
     return ".L.data." + std::to_string(global_label_++);
   }
 
+  std::string create_label_constant() {
+    return ".LC" + std::to_string(label_const_seq_++);
+  }
+
   template <typename... Args>
   ObserverPtr<Var> create_var_impl(std::vector<std::unique_ptr<Var>>& vars,
                                    Args&&... args) {
@@ -257,8 +285,11 @@ class VarScope {
     return var;
   }
 
-  /// Global label used for generating labels for string literals.
+  /// The label for global variables.
   int global_label_{};
+
+  /// The label constant label in .rodata section.
+  int label_const_seq_{};
 
   /// Pointer to the current scope being processed.
   std::unique_ptr<Scope> cur_scope_;
@@ -268,8 +299,18 @@ class VarScope {
   /// TODO(gc): We may use scope's parent to retrieve previous scope?
   std::vector<std::unique_ptr<Scope>> scope_stack_;
 
-  /// Collection of all global variables.
+  /// The variables declared in global scope.
+  /// Note: If the string literals are defined in global scope,
+  /// it will be included in the `globals_`.
+  /// Only the string literals defined in function scope, it will be
+  /// moved into `string_literals_`.
   std::vector<std::unique_ptr<Var>> globals_;
+
+  /// The string literals inside each function.
+  std::vector<std::unique_ptr<Var>> string_literals_;
+
+  /// The statics inside each function.
+  std::vector<std::unique_ptr<Var>> statics_;
 
   /// Collection of all local variables within functions, blocks, etc.
   std::vector<std::unique_ptr<Var>> locals_;

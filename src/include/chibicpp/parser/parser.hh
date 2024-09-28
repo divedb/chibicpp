@@ -13,38 +13,6 @@ class Lexer;
 class Node;
 class Var;
 
-struct ParserInfo {
-  struct CallStack {
-    std::string fname;  ///< Function name.
-    int lineno;         ///< Line number in source file.
-    int depth;          ///< Function call depth.
-  };
-
-  int depth{};
-  std::vector<CallStack> call_stacks;
-};
-
-class CallStackGuard {
- public:
-  explicit CallStackGuard(ParserInfo& pinfo, const std::string& fname,
-                          int lineno)
-      : pinfo_(pinfo) {
-#ifndef NDEBUG
-    pinfo_.call_stacks.push_back({fname, lineno, pinfo_.depth});
-    ++pinfo_.depth;
-#endif
-  }
-
-  ~CallStackGuard() {
-#ifndef NDEBUG
-    --pinfo_.depth;
-#endif
-  }
-
- private:
-  ParserInfo& pinfo_;
-};
-
 class Parser {
  public:
   explicit Parser(Lexer& lexer) : lexer_(lexer) {}

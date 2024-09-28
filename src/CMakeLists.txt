@@ -1,8 +1,29 @@
-add_library(ast ast/node.cc ast/type.cc)
-add_library(lex lex/tokenizer.cc)
-add_library(parser parser/parser.cc parser/scope.cc)
-target_link_libraries(parser PRIVATE ast)
+function(chibicpp_add_library)
+    cmake_parse_arguments(LIB "" "NAME;ALIAS" "HDRS;SRCS;COPTS;DEPS" ${ARGN})
+        
+    add_library(${LIB_NAME} ${LIB_SRCS})
 
-add_library(codegen codegen/backend.cc)
-add_executable(chibicpp main/chibicpp.cc)
-target_link_libraries(chibicpp PRIVATE ast lex parser codegen)
+    if(LIB_ALIAS)
+        add_library(${LIB_ALIAS} ALIAS ${LIB_NAME})
+    endif()
+
+    if(LIB_HDRS)
+        target_include_directories(${LIB_NAME} ${LIB_HDRS})
+    endif()
+
+    if(LIB_COPTS)
+        target_compile_options(${LIB_NAME} PRIVATE ${LIB_COPTS})
+    endif()
+
+    if(LIB_DEPS)
+        target_link_libraries(${LIB_NAME} PRIVATE ${LIB_DEPS})
+    endif()
+endfunction()
+
+
+add_subdirectory(ast)
+add_subdirectory(codegen)
+add_subdirectory(lex)
+add_subdirectory(main)
+add_subdirectory(parser)
+add_subdirectory(util)

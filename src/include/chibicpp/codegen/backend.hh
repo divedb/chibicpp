@@ -17,12 +17,7 @@ class Backend : public AstVisitor {
 
   explicit Backend(std::ostream& stream) : stream_{stream} {}
 
-  void visit_global(ObserverPtr<Var> var, AstContext& context) override;
   void visit_program(ObserverPtr<Program> prog, AstContext& context) override;
-  void visit_function_params(ObserverPtr<Var> var, int idx,
-                             AstContext& context) override;
-  void visit_function_body(ObserverPtr<Node> node,
-                           AstContext& context) override;
   void visit_function(ObserverPtr<Function> func, AstContext& context) override;
   void visit_node(ObserverPtr<Node> node, AstContext& context) override;
 

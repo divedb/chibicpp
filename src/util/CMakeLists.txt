@@ -1,0 +1,12 @@
+chibicpp_add_library(
+NAME
+    util
+HDRS
+SRCS
+    "stack_trace.cc"
+COPTS
+    ${KIWI_LIB_COPTS}
+DEPS
+ALIAS
+    chibicpp::util
+)

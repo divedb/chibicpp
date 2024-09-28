@@ -8,4 +8,5 @@ COPTS
     ${CHIBICPP_TEST_CXXFLAGS}
 DEPS
     ${GTEST_LIBRARIES}
+    chibicpp::ast
 )

@@ -3,7 +3,9 @@
 #include <cxxabi.h>
 #include <execinfo.h>
 
+#include <iosfwd>
 #include <string>
+#include <vector>
 
 namespace chibicpp {
 
@@ -63,5 +65,66 @@ inline std::string stacktrace(bool demangle) {
 
   return stack;
 }
+
+class StackTrace {
+ public:
+  /// \brief Clear the stack trace.
+  void clear() {
+    depth_ = 0;
+    frames_.clear();
+  }
+
+  /// \brief Dumps the stack trace to the specified output stream.
+  ///
+  /// \param os The output stream.
+  void dump(std::ostream& os) const;
+
+ private:
+  friend class StackGuard;
+
+  struct Frame {
+    std::string fname;  ///< Function name.
+    int lineno;         ///< Line number in source file.
+    int depth;          ///< Function call depth.
+  };
+
+  /// \brief Enters a new frame in the stack trace.
+  ///
+  /// \param fname The name of the function being entered.
+  /// \param lineno The line number in the source file where the function is
+  ///               called.
+  void enter(const std::string& fname, int lineno) {
+    frames_.emplace_back(fname, lineno, depth_);
+    ++depth_;
+  }
+
+  /// \brief Leaves the current frame in the stack trace.
+  void leave() { --depth_; }
+
+  int depth_{};
+  std::vector<Frame> frames_;
+};
+
+class StackGuard {
+ public:
+  explicit StackGuard(StackTrace& st, const std::string& fname, int lineno)
+      : st_{st} {
+    st_.enter(fname, lineno);
+  }
+
+  ~StackGuard() { st_.leave(); }
+
+ private:
+  StackTrace& st_;
+};
+
+extern StackTrace stack_tracer;
+
+#define TOKENPASTE(x, y) x##y
+#define TOKENPASTE2(x, y) TOKENPASTE(x, y)
+
+#define STACK_GUARD()                                                     \
+  StackGuard TOKENPASTE2(guard_, __COUNTER__)(stack_tracer, __FUNCTION__, \
+                                              __LINE__)
 
 }  // namespace chibicpp

@@ -189,20 +189,20 @@ class Tokenizer {
 
     // TODO(gc): Do we need to limit the maximum length of string literal?
     while (!is_eof() && (ch = *pos_) != '"') {
-      if (ch == '\\') {
-        // This depends on the given data passed inside constructor.
-        // If the data is '\0' terminated, we don't need to check `is_eof` here.
-        if (is_eof()) {
-          break;
-        }
+      // if (ch == '\\') {
+      //   // This depends on the given data passed inside constructor.
+      //   // If the data is '\0' terminated, we don't need to check `is_eof`
+      //   here. if (is_eof()) {
+      //     break;
+      //   }
 
-        // Read next character.
-        ch = *++pos_;
-        buf += parse_escape_char(ch);
-      } else {
-        buf += ch;
-      }
-
+      //   // Read next character.
+      //   ch = *++pos_;
+      //   buf += parse_escape_char(ch);
+      // } else {
+      //   buf += ch;
+      // }
+      buf += ch;
       pos_++;
     }
 
@@ -609,6 +609,16 @@ class Lexer {
   auto end() const { return tokens_.end(); }
 
   /// @}
+
+  void dump_remain_tokens(std::ostream& os) {
+    if (is_eof()) {
+      os << "empty.\n";
+    } else {
+      for (auto i = idx_; i < tokens_.size(); ++i) {
+        os << tokens_[i] << '\n';
+      }
+    }
+  }
 
  private:
   std::string error(std::string const& expect) {

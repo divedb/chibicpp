@@ -24,5 +24,4 @@ endfunction()
 add_subdirectory(ast)
 add_subdirectory(parser)
 add_subdirectory(util)
-
-# add_subdirectory(unittest)
+add_subdirectory(unittest)

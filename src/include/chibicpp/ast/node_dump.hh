@@ -4,85 +4,83 @@
 
 namespace chibicpp {
 
-inline std::string operator_to_string(NodeKind kind) {
-  switch (kind) {
-    case NodeKind::kAdd:
-    case NodeKind::kPtrAdd:
+inline std::string operator_to_string(Node::NodeID id) {
+  switch (id) {
+    case Node::kAdd:
+    case Node::kPtrAdd:
       return "+";
-    case NodeKind::kSub:
-    case NodeKind::kPtrSub:
-    case NodeKind::kPtrDiff:
+    case Node::kSub:
+    case Node::kPtrSub:
+    case Node::kPtrDiff:
       return "-";
-    case NodeKind::kMul:
+    case Node::kMul:
       return "*";
-    case NodeKind::kDiv:
+    case Node::kDiv:
       return "/";
-    case NodeKind::kEq:
+    case Node::kEq:
       return "==";
-    case NodeKind::kNe:
+    case Node::kNe:
       return "!=";
-    case NodeKind::kLt:
+    case Node::kLt:
       return "<";
-    case NodeKind::kLe:
+    case Node::kLe:
       return "<=";
-    case NodeKind::kAssign:
+    case Node::kAssign:
       return "=";
-    case NodeKind::kAddr:
+    case Node::kAddr:
       return "&";
-    case NodeKind::kDeref:
+    case Node::kDeref:
       return "*";
     default:
       return "";
   }
 }
 
-inline bool is_binary_operator(NodeKind kind) {
-  return kind == NodeKind::kAdd || kind == NodeKind::kPtrAdd ||
-         kind == NodeKind::kSub || kind == NodeKind::kPtrSub ||
-         kind == NodeKind::kPtrDiff || kind == NodeKind::kMul ||
-         kind == NodeKind::kDiv || kind == NodeKind::kEq ||
-         kind == NodeKind::kNe || kind == NodeKind::kLt ||
-         kind == NodeKind::kLe || kind == NodeKind::kAssign;
+inline bool is_binary_operator(Node::NodeID id) {
+  return id == Node::kAdd || id == Node::kPtrAdd || id == Node::kSub ||
+         id == Node::kPtrSub || id == Node::kPtrDiff || id == Node::kMul ||
+         id == Node::kDiv || id == Node::kEq || id == Node::kNe ||
+         id == Node::kLt || id == Node::kLe || id == Node::kAssign;
 }
 
-inline void dump(std::ostream& os, Node* node) {
-  if (node == nullptr) {
+inline void dump(std::ostream& os, ObserverPtr<Node> node) {
+  if (!node) {
     return;
   }
 
-  auto kind = node->kind;
+  auto id = node->id();
 
-  if (kind == NodeKind::kNum) {
-    os << node->val;
-  } else if (is_binary_operator(kind)) {
-    dump(os, node->lhs.get());
-    os << operator_to_string(kind);
-    dump(os, node->rhs.get());
-  } else if (kind == NodeKind::kAddr) {
+  if (id == Node::kNum) {
+    os << node->number();
+  } else if (is_binary_operator(id)) {
+    dump(os, node->lhs());
+    os << operator_to_string(id);
+    dump(os, node->rhs());
+  } else if (id == Node::kAddr) {
     os << "&";
-    dump(os, node->lhs.get());
-  } else if (kind == NodeKind::kDeref) {
+    dump(os, node->lhs());
+  } else if (id == Node::kDeref) {
     os << "*";
-    dump(os, node->lhs.get());
-  } else if (kind == NodeKind::kReturn) {
+    dump(os, node->lhs());
+  } else if (id == Node::kReturn) {
     os << "return";
-    dump(os, node->lhs.get());
-  } else if (kind == NodeKind::kIf) {
+    dump(os, node->lhs());
+  } else if (id == Node::kIf) {
     os << "if (";
-    dump(os, node->cond.get());
+    dump(os, node->cond());
     os << ")\n{";
-    dump(os, node->then.get());
+    dump(os, node->then());
     os << "\n}";
 
-    if (node->els) {
+    if (node->els()) {
       os << "else {";
-      dump(os, node->els.get());
+      dump(os, node->els());
       os << "}";
     }
-  } else if (kind == NodeKind::kExprStmt) {
-    dump(os, node->lhs.get());
-  } else if (kind == NodeKind::kVar) {
-    os << node->var->name();
+  } else if (id == Node::kExprStmt) {
+    dump(os, node->lhs());
+  } else if (id == Node::kVar) {
+    os << node->var()->name();
   } else {
     assert(false);
   }

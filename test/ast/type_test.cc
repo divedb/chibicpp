@@ -108,6 +108,20 @@ TEST(Pointer, Equals) {
   EXPECT_FALSE(pc->equals(pi));
 }
 
+TEST(Struct, Size) {
+  // struct { int a; } x;
+  auto i = TypeMgr::get_integer(Type::kInt);
+  auto st1 = TypeMgr::get_struct("Bar" + std::to_string(__LINE__), i);
+
+  EXPECT_EQ(i->size_in_bytes(), st1->size_in_bytes());
+
+  // struct { int a; char c; } x;
+  auto c = TypeMgr::get_char();
+  auto st2 = TypeMgr::get_struct("Bar" + std::to_string(__LINE__), i, c);
+
+  EXPECT_EQ(i->size_in_bytes() + c->size_in_bytes(), st2->size_in_bytes());
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
 
