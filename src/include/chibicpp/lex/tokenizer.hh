@@ -189,20 +189,21 @@ class Tokenizer {
 
     // TODO(gc): Do we need to limit the maximum length of string literal?
     while (!is_eof() && (ch = *pos_) != '"') {
-      // if (ch == '\\') {
-      //   // This depends on the given data passed inside constructor.
-      //   // If the data is '\0' terminated, we don't need to check `is_eof`
-      //   here. if (is_eof()) {
-      //     break;
-      //   }
+      if (ch == '\\') {
+        // This depends on the given data passed inside constructor.
+        // If the data is '\0' terminated, we don't need to check `is_eof`
+        // here.
+        if (is_eof()) {
+          break;
+        }
 
-      //   // Read next character.
-      //   ch = *++pos_;
-      //   buf += parse_escape_char(ch);
-      // } else {
-      //   buf += ch;
-      // }
-      buf += ch;
+        // Read next character.
+        ch = *++pos_;
+        buf += parse_escape_char(ch);
+      } else {
+        buf += ch;
+      }
+
       pos_++;
     }
 

@@ -69,7 +69,14 @@ void Backend::visit_function(ObserverPtr<Function> func, AstContext& context) {
     auto var = iter->get();
 
     stream_ << var->name() << ":\n";
-    stream_ << "  .string \"" << var->string_literal() << "\"\n";
+
+    for (auto c : var->string_literal()) {
+      stream_ << "  .byte " << static_cast<int>(c) << '\n';
+    }
+
+    stream_ << "  .byte 0\n";
+
+    // stream_ << "  .string \"" << var->string_literal() << "\"\n";
   }
 
   // Generate assembly code for function.
