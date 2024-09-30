@@ -20,7 +20,7 @@ class Parser {
   std::unique_ptr<Program> parse_program();
 
  private:
-  /// \brief Parse a function prototype.
+  /// Parse a function prototype.
   ///
   /// For example, the prototype could be `int foo(int a, int b)`.
   ///
@@ -31,7 +31,7 @@ class Parser {
   /// \return
   std::unique_ptr<Function::Prototype> parse_function_prototype();
 
-  /// \brief Parse function body.
+  /// Parse function body.
   std::vector<std::unique_ptr<Node>> parse_function_body();
 
   std::unique_ptr<Function> parse_function();
@@ -59,7 +59,7 @@ class Parser {
   ObserverPtr<Type> parse_basetype();
   ObserverPtr<Var> parse_func_param();
 
-  /// \brief Parse function parameters.
+  /// Parse function parameters.
   ///
   /// The reason to return `vector<Var*>` instead of `vector<unique_ptr<Var>>`
   /// is the `locals` field's type is `vector<unique_ptr<Var>>`. And the
@@ -68,7 +68,7 @@ class Parser {
   /// \return
   std::vector<ObserverPtr<Var>> parse_func_params();
 
-  /// \brief primary ::= "(" expr ")" | ident | num
+  /// primary ::= "(" expr ")" | ident | num
   /// \return
   std::unique_ptr<Node> parse_primary();
   std::vector<std::unique_ptr<Node>> parse_func_args();
@@ -81,7 +81,7 @@ class Parser {
   /// \name Utility method
   /// @{
 
-  /// \brief Generates a unique name for an anonymous struct.
+  /// Generates a unique name for an anonymous struct.
   ///
   /// This function provides a mechanism to generate an anonymous name
   /// for structures that do not have an explicit name. For example:
@@ -99,7 +99,7 @@ class Parser {
            std::to_string(lineno);
   }
 
-  /// \brief Determine whether the next top-level item is a function or a global
+  /// Determine whether the next top-level item is a function or a global
   ///        variable by looking ahead input tokens.
   ///
   /// \return `true` if it's a function, otherwise `false`.

@@ -37,7 +37,7 @@ void Node::update_type() {
     case Node::kLe:
     case Node::kFunCall:
     case Node::kNum:
-      type_ = TypeMgr::get_integer(Type::kInt);
+      type_ = TypeFactory::get_signed_int();
 
       return;
 
@@ -61,9 +61,9 @@ void Node::update_type() {
       // TODO(gc): `int a[8]; int* b = &a`.
       // This code will not work in C++ but work in C.
       if (lhs_->type()->is_array()) {
-        type_ = TypeMgr::get_pointer(lhs_->type()->base());
+        type_ = TypeFactory::get_pointer(lhs_->type()->base());
       } else {
-        type_ = TypeMgr::get_pointer(lhs_->type());
+        type_ = TypeFactory::get_pointer(lhs_->type());
       }
 
       return;

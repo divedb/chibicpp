@@ -5,89 +5,101 @@
 #include <string>
 #include <vector>
 
-#include "chibicpp/util/observer_ptr.hh"
+#include "chibicpp/parser/symbol_table.hh"
 
 namespace chibicpp {
 
 class Var;
 class Type;
 
-/// \brief A scope is a transient data structure that is used while parsing the
-///        program.  It assists with resolving identifiers to the appropriate
-///        declaration.
+/// A scope is a transient data structure that is used while parsing the
+/// program.  It assists with resolving identifiers to the appropriate
+/// declaration.
 class Scope {
  public:
-  /// \brief These are bitfields that are or'd together when creating a scope,
-  ///        which defines the sorts of things the scope contains.
-  enum ScopeFlags {
-    /// \brief This indicates that the scope corresponds to a function, which
-    ///        means that labels are set here.
+  /// These are bitfields that are or'd together when creating a scope, which
+  /// defines the sorts of things the scope contains.
+  enum Flag {
+    /// This indicates that the scope corresponds to a function, which means
+    /// that labels are set here.
     kFnScope = 0x01,
 
-    /// \brief This is a while, do, switch, for, etc that can have break
-    ///        statements embedded into it.
+    /// This is a while, do, switch, for, etc that can have break statements
+    /// embedded into it.
     kBreakScope = 0x02,
 
-    /// \brief This is a while, do, for, which can have continue statements
-    ///        embedded into it.
+    /// This is a while, do, for, which can have continue statements embedded
+    /// into it.
     kContinueScope = 0x04,
 
-    /// \brief This is a scope that can contain a declaration.  Some scopes just
-    ///        contain loop constructs but don't contain decls.
+    /// This is a scope that can contain a declaration.  Some scopes just
+    /// contain loop constructs but don't contain decls.
     kDeclScope = 0x08,
 
-    /// \brief The controlling scope in a if/switch/while/for statement.
+    /// The controlling scope in a if/switch/while/for statement.
     kControlScope = 0x10,
 
-    /// \brief The scope of a struct/union/class definition.
+    /// The scope of a struct/union/class definition.
     kClassScope = 0x20,
 
-    /// \brief This is a scope that corresponds to a block/closure object.
-    ///        Blocks serve as top-level scopes for some objects like labels,
-    ///        they also prevent things like break and continue.  BlockScopes
-    ///        always have the FnScope and DeclScope flags set as well.
+    /// This is a scope that corresponds to a block/closure object. Blocks serve
+    /// as top-level scopes for some objects like labels, they also prevent
+    /// things like break and continue.  BlockScopes always have the FnScope and
+    /// DeclScope flag set as well.
     kBlockScope = 0x40,
 
-    /// \brief This is a scope that corresponds to the template parameters of a
-    ///        C++ template. Template parameter scope starts at the 'template'
-    ///        keyword and ends when the template declaration ends.
+    /// This is a scope that corresponds to the template parameters of a C++
+    /// template. Template parameter scope starts at the 'template' keyword and
+    /// ends when the template declaration ends.
     kTemplateParamScope = 0x80,
 
-    /// \brief This is a scope that corresponds to the parameters within a
-    ///        function prototype.
+    /// This is a scope that corresponds to the parameters within a function
+    /// prototype.
     kFunctionPrototypeScope = 0x100,
 
-    /// \brief This is a scope that corresponds to the parameters within a
-    ///        function prototype for a function declaration (as opposed to any
-    ///        other kind of function declarator). Always has
-    ///        FunctionPrototypeScope set as well.
+    /// This is a scope that corresponds to the parameters within a function
+    /// prototype for a function declaration (as opposed to any other kind of
+    /// function declarator). Always has FunctionPrototypeScope set as well.
     kFunctionDeclarationScope = 0x200,
 
-    /// \brief This is a scope that corresponds to a switch statement.
+    /// This is a scope that corresponds to a switch statement.
     kSwitchScope = 0x1000,
 
-    /// \brief This is the scope of a C++ try statement.
+    /// This is the scope of a C++ try statement.
     kTryScope = 0x2000,
 
-    /// \brief This is the scope for a function-level C++ try or catch scope.
+    /// This is the scope for a function-level C++ try or catch scope.
     kFnTryCatchScope = 0x4000,
 
-    /// \brief This is the scope for the whole translation unit.
+    /// This is the scope for the whole translation unit.
     ///
     /// TODO(gc): Do we need this scope?
     kTranslationUnitScope = 0x8000
   };
 
-  Scope(unsigned short depth, unsigned short flags,
+  /// Construct a scope with the specified parameters.
+  ///
+  /// \param flag The flag of the scope.
+  /// \param depth The depth level of the scope (default is 0).
+  /// \param parent A pointer to parent scope, if any (default is null).
+  Scope(Flag flag, unsigned short depth = 0,
         ObserverPtr<Scope> parent = nullptr)
-      : any_parent_{parent}, depth_{depth}, flags_{flags} {}
+      : any_parent_{parent}, depth_{depth}, flag_{flag} {}
 
   ObserverPtr<Scope> parent() { return any_parent_; }
   unsigned short depth() const { return depth_; }
-  unsigned short flags() const { return flags_; }
+  unsigned short flag() const { return flag_; }
 
-  void add_var(ObserverPtr<Var> var) { vars_.push_back(var); }
+  /// Searches for a variable by name within the scope.
+  ///
+  /// \param name The name of the variable to search for.
+  /// \return Pointer to the variable if found, nullptr otherwise.
   ObserverPtr<Var> search_var(const std::string& name) const;
+
+  /// \brief Append the variable into current scope.
+  ///
+  /// \param var A pointer to the variable.
+  void append_var(ObserverPtr<Var> var) { vars_.push_back(var); }
 
  private:
   /// The parent scope for this scope.  This is null for the
@@ -98,9 +110,9 @@ class Scope {
   /// depth 0.
   unsigned short depth_;
 
-  /// Flags - This contains a set of ScopeFlags, which indicates how the scope
+  /// flag - This contains a set of Flag, which indicates how the scope
   /// interrelates with other control flow statements.
-  unsigned short flags_;
+  unsigned short flag_;
 
   /// PrototypeDepth - This is the number of function prototype scopes
   /// enclosing this scope, including this scope.
@@ -134,121 +146,27 @@ class Scope {
   /// other template parameter scopes as parents.
   ObserverPtr<Scope> template_param_parent_;
 
+  /// Keep track the variables in current scope.
+  /// The is a view of the variable inside symbol table.
   std::vector<ObserverPtr<Var>> vars_;
 };
 
-class VarScope {
+class ScopeStack {
  public:
-  VarScope()
-      : cur_scope_{std::make_unique<Scope>(0, Scope::kTranslationUnitScope)} {}
+  ScopeStack(Scope::Flag flag) : cur_scope_{std::make_unique<Scope>(flag)} {}
 
-  /// \brief Create a local variable with the specified identifier and type.
-  ///
-  /// For example, the following code demonstrates creating a local
-  /// variable when parser sees the variable `x` inside function `foo`:
-  ///
-  /// \code
-  /// VarScope scope;
-  /// scope.create_local_var("x", TypeMgr::get_primitive(int));
-  /// \endcode
-  ///
-  /// \param ident The name of the variable.
-  /// \param type The type of the variable.
-  /// \return A pointer to the newly created variable.
-  ObserverPtr<Var> create_local_var(const std::string& ident,
-                                    ObserverPtr<Type> type) {
-    return create_var_impl(locals_, ident, type, /*offset*/ 0);
-  }
-
-  /// \brief Creates a global variable with the specified identifier and type.
-  ///
-  /// \param ident The name of the variable.
-  /// \param type The type of the variable.
-  /// \return A pointer to the newly created global variable.
-  ObserverPtr<Var> create_global_var(const std::string& ident,
-                                     ObserverPtr<Type> type) {
-    return create_var_impl(globals_, ident, type);
-  }
-
-  /// \brief Creates a string literal as a global variable with the specified
-  ///        content and type.
-  ///
-  /// \param content The string content of the literal.
-  /// \param type The type of the variable.
-  /// \return A pointer to the newly created string literal variable.
-  ObserverPtr<Var> create_string_literal(const std::string& content,
-                                         ObserverPtr<Type> type) {
-    auto label = create_label_constant();
-
-    // Check current scope.
-    if (cur_scope_->flags() & Scope::kTranslationUnitScope) {
-      return create_var_impl(globals_, label, content, type);
-    } else {
-      return create_var_impl(string_literals_, label, content, type);
-    }
-  }
-
-  std::vector<std::unique_ptr<Var>> release_globals() {
-    auto ret = std::move(globals_);
-    globals_.clear();
-
-    return ret;
-  }
-
-  std::vector<std::unique_ptr<Var>> release_locals() {
-    auto ret = std::move(locals_);
-    locals_.clear();
-
-    return ret;
-  }
-
-  /// \brief Release the string literals inside the function scope.
-  ///
-  /// \return A vector of string literals inside the function scope.
-  std::vector<std::unique_ptr<Var>> release_string_literals() {
-    auto ret = std::move(string_literals_);
-    string_literals_.clear();
-
-    return ret;
-  }
-
-  std::vector<std::unique_ptr<Var>> release_statics() {
-    auto ret = std::move(statics_);
-    statics_.clear();
-
-    return ret;
-  }
-
-  /// \brief Search for variable by the specified name.
-  ///
-  /// \param ident The name of the variable.
-  /// \return A pointer to `Var` if it exists, nullptr otherwise.
-  ObserverPtr<Var> get_var(const std::string& ident) {
-    assert(cur_scope_);
-
-    auto var = cur_scope_->search_var(ident);
-
-    return var;
-  }
-
-  /// \brief Enters a new scope defined by the specified flag.
-  ///
-  /// This method saves the current scope and transitions to a new scope
-  /// based on the provided scope flag.
+  /// Enters a new scope defined by the specified flag.
   ///
   /// \param flag The type of the new scope.
-  void enter(Scope::ScopeFlags flag) {
+  void enter(Scope::Flag flag) {
     int depth = cur_scope_->depth();
     ObserverPtr<Scope> parent = cur_scope_.get();
 
     scope_stack_.push_back(std::move(cur_scope_));
-    cur_scope_ = std::make_unique<Scope>(depth + 1, flag, parent);
+    cur_scope_ = std::make_unique<Scope>(flag, depth + 1, parent);
   }
 
-  /// \brief Exits the current scope.
-  ///
-  /// This method restores the previous scope, effectively leaving the
-  /// current context and returning to the outer scope.
+  /// Exits the current scope.
   void leave() {
     assert(!scope_stack_.empty());
 
@@ -256,41 +174,10 @@ class VarScope {
     scope_stack_.pop_back();
   }
 
-  /// \brief Get the depth of current scope.
-  ///
-  /// \return The depth of current scope.
-  int depth() const { return cur_scope_->depth(); }
-
-  /// \brief Get the type of current scope
-  ///
-  /// \return The type of current scope
-  int flags() const { return cur_scope_->flags(); }
+  /// \return Current scope.
+  ObserverPtr<Scope> get_scope() const { return cur_scope_.get(); }
 
  private:
-  std::string create_global_label() {
-    return ".L.data." + std::to_string(global_label_++);
-  }
-
-  std::string create_label_constant() {
-    return ".LC" + std::to_string(label_const_seq_++);
-  }
-
-  template <typename... Args>
-  ObserverPtr<Var> create_var_impl(std::vector<std::unique_ptr<Var>>& vars,
-                                   Args&&... args) {
-    vars.push_back(std::make_unique<Var>(std::forward<Args>(args)...));
-    auto var = make_observer(vars.back().get());
-    cur_scope_->add_var(var);
-
-    return var;
-  }
-
-  /// The label for global variables.
-  int global_label_{};
-
-  /// The label constant label in .rodata section.
-  int label_const_seq_{};
-
   /// Pointer to the current scope being processed.
   std::unique_ptr<Scope> cur_scope_;
 
@@ -298,22 +185,133 @@ class VarScope {
   /// onto this stack.
   /// TODO(gc): We may use scope's parent to retrieve previous scope?
   std::vector<std::unique_ptr<Scope>> scope_stack_;
+};
 
-  /// The variables declared in global scope.
-  /// Note: If the string literals are defined in global scope,
-  /// it will be included in the `globals_`.
-  /// Only the string literals defined in function scope, it will be
-  /// moved into `string_literals_`.
-  std::vector<std::unique_ptr<Var>> globals_;
+class FunctionScope {
+ public:
+  explicit FunctionScope(Scope::Flag flag = Scope::kFnScope)
+      : sym_table_{std::make_unique<SymbolTable>()},
+        var_stack_{flag},
+        tag_stack_{flag},
+        static_stack_{flag} {}
 
-  /// The string literals inside each function.
-  std::vector<std::unique_ptr<Var>> string_literals_;
+  /// Create a variable with the specified identifier and type.
+  ///
+  /// For example, the following code demonstrates creating a variable of type
+  /// `int` when parser sees the variable `x` inside function:
+  ///
+  /// \code
+  /// FunctionScope scope;
+  /// scope.create_var("x", TypeMgr::get_signed_int());
+  /// \endcode
+  ///
+  /// \param ident The name of the variable.
+  /// \param type The type of the variable.
+  /// \return A pointer to the newly created variable.
+  ObserverPtr<Var> create_var(const std::string& ident,
+                              ObserverPtr<Type> type) {
+    auto var = sym_table_->create_var(ident, type, /*offset*/ 0);
+    var_stack_.get_scope()->append_var(var);
 
-  /// The statics inside each function.
-  std::vector<std::unique_ptr<Var>> statics_;
+    return var;
+  }
 
-  /// Collection of all local variables within functions, blocks, etc.
-  std::vector<std::unique_ptr<Var>> locals_;
+  /// Create a tag with the specified identifier and type.
+  ///
+  /// For example, the following code demonstrates creating a tag:
+  ///
+  /// \code
+  /// void foo () {
+  ///   struct Person { int age; };
+  /// }
+  ///
+  /// int main() {
+  ///   FunctionScope fscope;
+  ///   auto tag = fscope.create_tag("Person", TypeMgr::get_struct(...));
+  /// }
+  /// \endcode
+  ///
+  /// \param ident The name of the tag.
+  /// \param type The type of the tag.
+  /// \return A pointer to the newly created tag.
+  ObserverPtr<Var> create_tag(const std::string& ident,
+                              ObserverPtr<Type> type) {
+    auto var = sym_table_->create_tag(ident, type);
+    tag_stack_.get_scope()->append_var(var);
+
+    return var;
+  }
+
+  /// Creates a string literal as a global variable with the specified content
+  /// and type.
+  ///
+  /// \param content The string content of the literal.
+  /// \param type The type of the variable.
+  /// \return A pointer to the newly created string literal variable.
+  ObserverPtr<Var> create_string_literal(const std::string& content,
+                                         ObserverPtr<Type> type) {
+    return sym_table_->create_string_literal(content, type);
+  }
+
+  /// Search for the variable by name specified by the parameter.
+  ///
+  /// \param ident The name of the variable.
+  /// \return A pointer to the variable if found, nullptr otherwise.
+  ObserverPtr<Var> search_var(const std::string& ident) const {
+    return var_stack_.get_scope()->search_var(ident);
+  }
+
+  /// Search for the tag by name specified by the parameter.
+  ///
+  /// \param ident The name of the tag.
+  /// \return A pointer to the tag if found, nullptr otherwise.
+  ObserverPtr<Var> search_tag(const std::string& ident) const {
+    return tag_stack_.get_scope()->search_var(ident);
+  }
+
+  /// Enter a new scope.
+  ///
+  /// \param flag The type of scope.
+  void enter(Scope::Flag flag) {
+    var_stack_.enter(flag);
+    tag_stack_.enter(flag);
+    static_stack_.enter(flag);
+  }
+
+  /// Leave current scope.
+  void leave() {
+    static_stack_.leave();
+    tag_stack_.leave();
+    var_stack_.leave();
+  }
+
+ protected:
+  /// The symbol table keep track of all the variables within the function.
+  std::unique_ptr<SymbolTable> sym_table_;
+
+ private:
+  /// Scope for variables declared or defined within the function.
+  ScopeStack var_stack_;
+  /// Scope for structures declared within the function.
+  ScopeStack tag_stack_;
+  /// Scope for static variables declared or defined within the function.
+  ScopeStack static_stack_;
+};
+
+class ProgramScope : public FunctionScope {
+ public:
+  ProgramScope()
+      : FunctionScope{Scope::kTranslationUnitScope},
+        func_scope_{std::make_unique<Scope>(Scope::kTranslationUnitScope)} {}
+
+  ObserverPtr<Var> create_global(const std::string& ident,
+                                 ObserverPtr<Type> type) {
+    return sym_table_->create_var(ident, type, 0);
+  }
+
+ private:
+  /// The function declared or defined in the global scope.
+  std::unique_ptr<Scope> func_scope_;
 };
 
 }  // namespace chibicpp

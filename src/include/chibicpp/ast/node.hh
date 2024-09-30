@@ -6,11 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "chibicpp/ast/ast_context.hh"
 #include "chibicpp/ast/type.hh"
-#include "chibicpp/ast/visitor.hh"
 #include "chibicpp/lex/token.hh"
-#include "chibicpp/util/observer_ptr.hh"
 
 namespace chibicpp {
 
@@ -40,17 +37,17 @@ class Var {
   ///
   /// \param name The name of the variable.
   /// \param type The type of the variable.
-  Var(std::string const& name, ObserverPtr<Type> type)
+  Var(const std::string& name, ObserverPtr<Type> type)
       : name_{name}, type_{type}, offset_{kGlobalVarTypeMask} {}
 
   /// \brief Construct a global variable of string literal type.
   ///
-  /// \param name The name of the string literal.
+  /// \param label The label of the string literal.
   /// \param content The content of string literal.
   /// \param type The type of the variable.
-  Var(std::string const& name, std::string const& content,
+  Var(const std::string& label, const std::string& content,
       ObserverPtr<Type> type)
-      : name_{name},
+      : name_{label},
         literal_{content},
         type_{type},
         offset_{kGlobalVarTypeMask} {}
@@ -481,7 +478,10 @@ class Function {
     // from their declaration onto the upper stack. This could affect
     // memory layout and access patterns?
     for (auto it = locals_.rbegin(); it != locals_.rend(); ++it) {
-      offset += it->get()->type()->size_in_bytes();
+      auto type = it->get()->type();
+
+      offset = align_to(offset, type->size_in_bytes());
+      offset += type->size_in_bytes();
       it->get()->set_offset(offset);
     }
 

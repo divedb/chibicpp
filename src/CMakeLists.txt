@@ -22,8 +22,8 @@ endfunction()
 
 
 add_subdirectory(ast)
-add_subdirectory(codegen)
-add_subdirectory(lex)
-add_subdirectory(main)
+# add_subdirectory(codegen)
+# add_subdirectory(lex)
+# add_subdirectory(main)
 add_subdirectory(parser)
-add_subdirectory(util)
+# add_subdirectory(util)

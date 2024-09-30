@@ -8,7 +8,7 @@
 using namespace std;
 using namespace chibicpp;
 
-TEST(Scope, BlockScope) {
+TEST(VarBlockScope, EnterAndLeave) {
   // int main () {
   //     int a;
   //     int b;
@@ -18,35 +18,77 @@ TEST(Scope, BlockScope) {
   //     }
   // }
 
-  VarScope scope;
-  auto type = TypeMgr::get_integer(Type::kInt);
+  FunctionScope scope;
+  auto type = TypeFactory::get_signed_int();
 
   scope.enter(Scope::kFnScope);
-  scope.create_local_var("a", type);
-  scope.create_local_var("b", type);
+  scope.create_var("a", type);
+  scope.create_var("b", type);
 
   scope.enter(Scope::kBlockScope);
-  scope.create_local_var("c", type);
-  scope.create_local_var("d", type);
+  scope.create_var("c", type);
+  scope.create_var("d", type);
 
-  EXPECT_TRUE(static_cast<bool>(scope.get_var("d")));
-  EXPECT_TRUE(static_cast<bool>(scope.get_var("c")));
-  EXPECT_TRUE(static_cast<bool>(scope.get_var("b")));
-  EXPECT_TRUE(static_cast<bool>(scope.get_var("a")));
+  auto d = scope.search_var("d");
+  EXPECT_TRUE(static_cast<bool>(d));
+  EXPECT_EQ("d", d->name());
 
+  auto c = scope.search_var("c");
+  EXPECT_TRUE(static_cast<bool>(c));
+  EXPECT_EQ("c", c->name());
+
+  auto b = scope.search_var("b");
+  EXPECT_TRUE(static_cast<bool>(b));
+  EXPECT_EQ("b", b->name());
+
+  auto a = scope.search_var("a");
+  EXPECT_TRUE(static_cast<bool>(a));
+  EXPECT_EQ("a", a->name());
+
+  // Leave block scope.
   scope.leave();
 
-  EXPECT_FALSE(static_cast<bool>(scope.get_var("d")));
-  EXPECT_FALSE(static_cast<bool>(scope.get_var("c")));
-  EXPECT_TRUE(static_cast<bool>(scope.get_var("b")));
-  EXPECT_TRUE(static_cast<bool>(scope.get_var("a")));
+  EXPECT_FALSE(static_cast<bool>(scope.search_var("d")));
+  EXPECT_FALSE(static_cast<bool>(scope.search_var("c")));
 
+  b = scope.search_var("b");
+  EXPECT_TRUE(static_cast<bool>(b));
+  EXPECT_EQ("b", b->name());
+
+  a = scope.search_var("a");
+  EXPECT_TRUE(static_cast<bool>(a));
+  EXPECT_EQ("a", a->name());
+
+  // Leave function scope.
   scope.leave();
 
-  EXPECT_FALSE(static_cast<bool>(scope.get_var("d")));
-  EXPECT_FALSE(static_cast<bool>(scope.get_var("c")));
-  EXPECT_FALSE(static_cast<bool>(scope.get_var("b")));
-  EXPECT_FALSE(static_cast<bool>(scope.get_var("a")));
+  EXPECT_FALSE(static_cast<bool>(scope.search_var("d")));
+  EXPECT_FALSE(static_cast<bool>(scope.search_var("c")));
+  EXPECT_FALSE(static_cast<bool>(scope.search_var("b")));
+  EXPECT_FALSE(static_cast<bool>(scope.search_var("a")));
+}
+
+TEST(TagBlockScope, EnterAndLeave) {
+  // int main() {
+  //   struct Person {
+  //     int a;
+  //     int b;
+  //   };
+
+  //   {
+  //     struct Person {
+  //       short a;
+  //       short b;
+  //     };
+
+  //     struct Person p;
+  //     printf("%ld\n", sizeof(p.a));
+  //   }
+  // }
+  // auto int_type = TypeFactory::get_signed_int();
+  // auto short_type = TypeFactory::get_signed_short();
+  // auto person1 = TypeFactory::get_struct("Person", int_type, int_type);
+  // auto person2 = TypeFactory::get_struct("Person", short_type, short_type);
 }
 
 int main(int argc, char** argv) {

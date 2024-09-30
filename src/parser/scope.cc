@@ -12,7 +12,7 @@ ObserverPtr<Var> Scope::search_var(const std::string& name) const {
                            [&name](auto var) { return var->name() == name; });
 
   if (iter != vars_.rend()) {
-    return *iter;
+    return iter->get();
   }
 
   // If not found in the current scope, check parent scopes.

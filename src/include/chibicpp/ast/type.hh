@@ -5,51 +5,41 @@
 #include <iostream>
 #include <map>
 #include <memory>
-#include <numeric>
 #include <string>
 #include <vector>
 
-#include "chibicpp/util/observer_ptr.hh"
+#include "chibicpp/support/math.hh"
+#include "chibicpp/support/observer_ptr.hh"
+#include "chibicpp/support/type_traits.hh"
 
 namespace chibicpp {
 
-struct Type {
+/// The C language provides the four basic arithmetic type specifiers and the
+/// modifiers:
+/// ===========================================================================
+/// Type:
+/// - char
+/// - int
+/// - float
+/// - double
+/// ===========================================================================
+/// Modifier:
+/// - signed
+/// - unsigned
+/// - short
+/// - long
+/// ===========================================================================
+class Type {
  public:
-  /// The C language provides the four basic arithmetic type specifiers char,
-  /// int, float and double, and the modifiers signed, unsigned, short, and
-  /// long.
-  /// ===========================================================================
-  /// Type
-  /// char
-  /// signed char
-  /// unsigned char
-  /// short
-  /// short int
-  /// signed short
-  /// signed short int
-  /// unsigned short
-  /// unsigned short int
-  /// int
-  /// signed
-  /// signed int
-  /// unsignedcont_len
-  /// unsigned int
-  /// long
-  /// long int
-  /// signed long
-  /// signed long int
-  /// unsigned long
-  /// unsigned long int
-  /// long long
-  /// long long int
-  /// signed long long
-  /// signed long long int
-  /// unsigned long long
-  /// unsigned long long int
-  /// float
-  /// double
-  /// long double
-  enum TypeID : int {
+  class Layout {
+   public:
+    int size;
+    int alignment;
+  };
+
+  enum Qualifier { kConst, kVolatile };
+
+  enum ID : int {
     kChar = 0x01,
     kInt = 0x02,
 
@@ -67,191 +57,137 @@ struct Type {
     kLong = 0x8000,
     kLongLong = 0x10000,
 
+    kBits = 0x20000,
+
     kPrimitive = kChar | kInt | kFloat | kDouble,
     kTypeModifier = kSigned | kUnsigned | kShort | kLong | kLongLong,
   };
 
-  friend inline TypeID operator|(TypeID lhs, TypeID rhs) {
-    return static_cast<TypeID>(static_cast<int>(lhs) | static_cast<int>(rhs));
+  friend inline ID operator|(ID lhs, ID rhs) {
+    return static_cast<ID>(static_cast<int>(lhs) | static_cast<int>(rhs));
   }
 
-  friend inline TypeID operator&(TypeID lhs, TypeID rhs) {
-    return static_cast<TypeID>(static_cast<int>(lhs) & static_cast<int>(rhs));
-  }
-
-  friend inline bool is_integer_type(TypeID type_id) {
-    return type_id & (kChar | kShort | kInt | kLong | kLongLong);
+  friend inline ID operator&(ID lhs, ID rhs) {
+    return static_cast<ID>(static_cast<int>(lhs) & static_cast<int>(rhs));
   }
 
   /// @name Constructor
   /// @{
 
-  /// \brief Construct a type from the specified parameters.
+  /// Construct a type from the specified parameters.
   ///
-  /// \param id The type ID.
-  /// \param base The base type and default is nullptr.
-  Type(TypeID id, ObserverPtr<Type> base = nullptr) : id_{id}, base_{base} {}
+  /// For example: the following snippet get a type of `int*`.
+  ///
+  /// \code
+  /// auto type{Type::kInt, 8, TypeFactory::get_integer()};
+  /// \endcode
+  ///
+  /// \param id The ID of the type.
+  /// \param base The base type, defaulting to nullptr.
+  Type(ID id, ObserverPtr<Type> base = nullptr);
 
   ///@}
 
-  /// \brief Destructor.
+  /// Destructor.
   virtual ~Type() = default;
 
-  /// @name Type ID
+  /// @name Type Check
   /// @{
 
-  /// \brief Check type is a `char`.
-  ///
   /// \return `true` if type is `char`, `false` otherwise.
-  bool is_char() const { return id_ & TypeID::kChar; }
+  bool is_char() const { return id_ & ID::kChar; }
 
-  /// \brief Check type is an integer.
-  ///
   /// \return `true` if type is `int`, `false` otherwise.
-  bool is_integer() const { return is_integer_type(id_); }
+  bool is_integer() const {
+    return id_ & (kBits | kChar | kShort | kInt | kLong | kLongLong);
+  }
 
-  /// \brief Check type is a `float`.
-  ///
   /// \return `true` if type is `float`, `false` otherwise.
-  bool is_float() const { return id_ & TypeID::kFloat; }
+  bool is_float() const { return id_ & ID::kFloat; }
 
-  /// \brief Check type is a `double`.
-  ///
   /// \return `true` if type is `double`, `false` otherwise.
-  bool is_double() const { return id_ & TypeID::kDouble; }
+  bool is_double() const { return id_ & ID::kDouble; }
 
-  /// \brief Check type is a `pointer`.
-  ///
   /// \return `true` if type is `pointer`, `false` otherwise.
-  bool is_pointer() const { return id_ & TypeID::kPointer; }
+  bool is_pointer() const { return id_ & ID::kPointer; }
 
-  /// \brief Check type is an `array`.
-  ///
   /// \return `true` if type is `array`, `false` otherwise.
-  bool is_array() const { return id_ & TypeID::kArray; }
+  bool is_array() const { return id_ & ID::kArray; }
 
-  /// \brief Check type is a `struct`.
-  ///
   /// \return `true` if type is `struct`, `false` otherwise.
-  bool is_struct() const { return id_ & TypeID::kStruct; }
+  bool is_struct() const { return id_ & ID::kStruct; }
 
   /// @}
 
-  /// @name Type modifiers.
+  /// @name Type Modifiers
   /// @{
 
-  /// \brief Check this type is `signed`.
-  ///
   /// \return `true` if it's `signed`, `false` otherwise.
-  bool is_signed() const { return id_ & TypeID::kSigned; }
+  bool is_signed() const { return id_ & ID::kSigned; }
 
-  /// \brief Check this type is `unsigned`.
-  ///
   /// \return `true` if it's `unsigned`, `false` otherwise.
-  bool is_unsigned() const { return id_ & TypeID::kUnsigned; }
+  bool is_unsigned() const { return id_ & ID::kUnsigned; }
 
-  /// \brief Check this type is `short`.
-  ///
   /// \return `true` if it's `short`, `false` otherwise.
-  bool is_short() const { return id_ & TypeID::kShort; }
+  bool is_short() const { return id_ & ID::kShort; }
 
-  /// \brief Check this type is `long`.
-  ///
   /// \return `true` if it's `long`, `false` otherwise.
-  bool is_long() const { return id_ & TypeID::kLong; }
+  bool is_long() const { return id_ & ID::kLong; }
 
-  /// \brief Check this type is `long long`.
-  ///
   /// \return `true` if it's `long long`, `false` otherwise.
-  bool is_long_long() const { return id_ & TypeID::kLongLong; }
+  bool is_long_long() const { return id_ & ID::kLongLong; }
 
-  bool is_modifier() const { return id_ & TypeID::kTypeModifier; }
+  bool has_modifier() const { return id_ & ID::kTypeModifier; }
 
   /// @}
 
-  TypeID id() const { return id_; }
+  /// @name Access
+  /// @{
 
-  /// \brief Get base type.
-  ///
-  /// \return Base type.
+  ID id() const { return id_; }
+
+  /// \return The alignment value of the type.
+  int alignment() const { return layout_.alignment; }
+
+  /// \return Base type if it exists, nullptr otherwise.
   ObserverPtr<Type> base() const { return base_; }
   ObserverPtr<Type> alias() const { return alias_; }
 
+  /// \return The size of this type in bytes.
+  size_t size_in_bytes() const { return layout_.size; }
+
+  ///@}
+
+  /// Clear signed modifier.
   void clear_signed() {
     unsigned mask = ~kSigned;
-    id_ = static_cast<TypeID>(id_ & mask);
+    id_ = static_cast<ID>(id_ & mask);
   }
 
+  /// Clear unsigned modifier.
   void clear_unsigned() {
     unsigned mask = ~kUnsigned;
-    id_ = static_cast<TypeID>(id_ & mask);
+    id_ = static_cast<ID>(id_ & mask);
   }
 
+  /// Set signed modifier.
+  // A type can't be signed and unsigned simutaneously.
   void set_signed() {
-    // A type can't be signed and unsigned simutaneously.
     clear_unsigned();
     id_ = id_ | kSigned;
   }
 
+  /// Set unsigned modifier.
   void set_unsigned() {
     clear_signed();
     id_ = id_ | kUnsigned;
   }
 
-  /// \brief Get the size of this type in bytes.
+  /// Get detailed type information for this type.
   ///
-  /// Type of `array` and `struct` must override this method.
-  ///
-  /// \return Size in bytes.
-  virtual size_t size_in_bytes() const {
-    // Order matters.
-    if (is_long() && is_double()) {
-      return sizeof(long double);
-    }
-
-    if (is_double()) {
-      return sizeof(double);
-    }
-
-    if (is_float()) {
-      return sizeof(float);
-    }
-
-    if (is_long_long()) {
-      return sizeof(long long);
-    }
-
-    if (is_long()) {
-      return sizeof(long);
-    }
-
-    if (is_short()) {
-      return sizeof(short);
-    }
-
-    if (is_char()) {
-      return sizeof(char);
-    }
-
-    if (is_pointer()) {
-      return sizeof(void*);
-    }
-
-    if (is_integer()) {
-      // TODO(gc): need to return `sizeof(int)`.
-      return 8;
-    }
-
-    // We can't determine the size of array and struct.
-    __builtin_unreachable();
-
-    return 0;
-  }
-
-  /// \brief Retrieve detailed type information for this type.
-  ///
-  /// For example, calling `to_string` on type of `a` will return "unsigned long
+  /// For example, calling `to_string` on type `a` will return "unsigned long
   /// long int".
+  ///
   /// \code
   /// unsigned long long int a = 42;
   /// \endcode
@@ -259,10 +195,7 @@ struct Type {
   /// \return A string representation of the type.
   std::string to_string() const;
 
-  /// \brief Check if this type is equal to another type.
-  ///
-  /// This default implementation compares only primitive types, such as `int`,
-  /// `char`, `short`, and etc.
+  /// Check if this type is equal to another type.
   ///
   /// \param other The type to compare with.
   /// \return `true` if two types are equal, `false` otherwise.
@@ -275,39 +208,78 @@ struct Type {
     return id() == other->id();
   }
 
+ protected:
+  Layout layout_;
+
  private:
-  TypeID id_;
+  ID id_;
   ObserverPtr<Type> base_;
   ObserverPtr<Type> alias_;  ///< Typedef
 };
+
+namespace {
+
+template <typename T>
+inline Type::Layout get_type_layout() {
+  using TyTrait = TypeTraits<T>;
+
+  return {TyTrait::size, TyTrait::alignment};
+}
+
+inline Type::Layout type_id_to_layout(Type::ID id) {
+  if ((id & Type::kLong) && (id & Type::kDouble)) {
+    return get_type_layout<long double>();
+  } else if (id & Type::kDouble) {
+    return get_type_layout<double>();
+  } else if (id & Type::kFloat) {
+    return get_type_layout<float>();
+  } else if (id & Type::kLongLong) {
+    return get_type_layout<long long>();
+  } else if (id & Type::kLong) {
+    return get_type_layout<long>();
+  } else if (id & Type::kInt) {
+    return get_type_layout<int>();
+  } else if (id & Type::kShort) {
+    return get_type_layout<short>();
+  } else if (id & Type::kChar) {
+    return get_type_layout<char>();
+  } else if (id & Type::kPointer) {
+    return get_type_layout<void*>();
+  }
+
+  // Make it crash if this dirty value is used.
+  return {-1, -1};
+}
+
+}  // namespace
 
 /// Class to represent integer types. Note that this class is also used to
 /// represent the built-in integer types: Int1Ty, Int8Ty, Int16Ty, Int32Ty and
 /// Int64Ty.
 class IntegerType : public Type {
  public:
-  explicit IntegerType(int num_bits, TypeID type_id)
-      : Type{TypeID::kInt | type_id}, num_bits_{num_bits} {}
+  explicit IntegerType(Type::ID type_id, int nbits)
+      : Type{type_id}, nbits_{nbits} {}
 
-  /// \brief Get the number of bits to represent the integer type.
+  /// Get the number of bits to represent the integer type.
   ///
   /// \return Number of bits to represent the integer type.
-  int num_bits() const { return num_bits_; }
+  int num_bits() const { return nbits_; }
 
-  /// \brief Get a bitmask with ones set for all of the bits that can be set by
+  /// Get a bitmask with ones set for all of the bits that can be set by
   ///        an unsigned version of this type.  This is 0xFF for i8, 0xFFFF for
   ///        i16, etc.
   ///
   /// \return Bit mask.
   uint64_t bit_mask() const { return ~uint64_t(0UL) >> (64 - num_bits()); }
 
-  /// \brief Get uint64_t with just the most significant bit set (the
+  /// Get uint64_t with just the most significant bit set (the
   ///        sign bit, if the value is treated as a signed number).
   ///
   /// \return Sign bit.
   uint64_t sign_bit() const { return 1ULL << (num_bits() - 1); }
 
-  /// \brief Check if this type is equal to another type.
+  /// Check if this type is equal to another type.
   ///
   /// Two `int` types are considered equal if they have the same number of bits.
   /// For example, the types of `a1` and `a2` in the following struct are
@@ -324,17 +296,16 @@ class IntegerType : public Type {
       return false;
     }
 
-    return static_cast<const IntegerType*>(other.get())->num_bits() ==
-           num_bits_;
+    return static_cast<const IntegerType*>(other.get())->num_bits() == nbits_;
   }
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast.
   static inline bool classof(const ObserverPtr<Type> type) {
-    return type->id() == TypeID::kInt;
+    return type->is_integer();
   }
 
  private:
-  int num_bits_;
+  int nbits_;
 };
 
 /// Class to represent function types.
@@ -343,7 +314,7 @@ class FunctionType : public Type {
   FunctionType(ObserverPtr<Type> return_type,
                const std::vector<ObserverPtr<Type>>& params,
                bool is_var_arg = false)
-      : Type{TypeID::kFunction},
+      : Type{ID::kFunction},
         is_var_arg_{is_var_arg},
         return_type_{return_type},
         params_{params} {}
@@ -352,7 +323,7 @@ class FunctionType : public Type {
   ObserverPtr<Type> return_type() const { return return_type_; }
   const std::vector<ObserverPtr<Type>>& params() const { return params_; }
 
-  /// \brief Get the parameter type at the specified index.
+  /// Get the parameter type at the specified index.
   ///
   /// \param i The index of the parameter, starting from 0.
   /// \return The parameter type at the specified index.
@@ -362,14 +333,14 @@ class FunctionType : public Type {
     return params_[i];
   }
 
-  /// \brief Get the number of params for this function.
+  /// Get the number of params for this function.
   ///
   /// This doesn't include the `is_var_arg`.
   ///
   /// \return The number of parameters.
   unsigned get_num_params() const { return params_.size(); }
 
-  /// \brief Check if this type is equal to another type.
+  /// Check if this type is equal to another type.
   ///
   /// Two `function` types are considered equal if they are have:
   /// 1. Matching return type.
@@ -401,28 +372,22 @@ class FunctionType : public Type {
 
 class ArrayType : public Type {
  public:
-  /// \brief Construct an array type with the specified `size` and `base` type.
+  /// Construct an array type with the specified `size` and `base` type.
   ///
   /// TODO(gc): give an example for 2D array.
   ///
   /// \param size Number of elements in array.
   /// \param base Base type.
   ArrayType(size_t length, ObserverPtr<Type> base)
-      : Type{TypeID::kArray, base}, length_{length} {}
-
-  /// \brief Get number of elements in this array.
-  ///
-  /// \return Number of elements.
-  size_t length() const { return length_; }
-
-  size_t size_in_bytes() const override {
-    return length() * base()->size_in_bytes();
+      : Type{ID::kArray, base}, length_{length} {
+    layout_.size = length * base->size_in_bytes();
+    layout_.alignment = base->alignment();
   }
 
-  /// \brief Check if this type is equal to another type.
+  /// Check if this array is equal to another type.
   ///
   /// Two `array` types are considered equal if they have same number of
-  /// elements and the same base type.
+  /// elements and identical base type.
   ///
   /// For example, while both `a` and `b` have a length of 8, they differ
   /// in base type: one is `int` and the other is `double`.
@@ -431,8 +396,8 @@ class ArrayType : public Type {
   /// int a[8]; double b[8];
   /// \endcode
   ///
-  /// \param other The type to compare with. \return `true` if two
-  /// types are equal, `false` otherwise.
+  /// \param other The type to compare with.
+  /// \return `true` if two types are equal, `false` otherwise.
   bool equals(const ObserverPtr<Type> other) const override {
     if (!Type::equals(other)) {
       return false;
@@ -442,6 +407,8 @@ class ArrayType : public Type {
 
     return length_ == arr->length_ && base()->equals(other->base());
   }
+
+  size_t length() const { return length_; }
 
   static inline bool classof(const ObserverPtr<Type> type) {
     return type->id() == Type::kArray;
@@ -455,7 +422,7 @@ class StructType;
 
 class Member {
  public:
-  /// \brief Construct a member with the specified type.
+  /// Construct a member with the specified type.
   ///
   /// This constructor focuses solely on the member's type, ignoring its name.
   /// For instance, when generating IR, it is sufficient to know that the
@@ -491,14 +458,7 @@ class Member {
 
   /// @}
 
-  friend std::ostream& operator<<(std::ostream& os, const Member& mem) {
-    os << "[name  ]: " << mem.name_ << '\n';
-    os << "[type  ]: " << mem.type_->to_string() << '\n';
-    os << "[index ]: " << mem.index_ << '\n';
-    os << "[offset]: " << mem.offset_;
-
-    return os;
-  }
+  void dump(std::ostream& os) const;
 
  private:
   int index_;   ///< Index of the member in the order it was declared.
@@ -526,40 +486,41 @@ class StructType : public Type {
 
   StructType(const std::string& name,
              std::vector<std::unique_ptr<Member>> members, Meta meta = kDefault)
-      : Type{TypeID::kStruct, /*base*/ nullptr},
+      : Type{ID::kStruct, /*base*/ nullptr},
         meta_{meta},
         name_{name},
         members_{std::move(members)} {
     int offset = 0;
+    int alignment = 0;
 
     for (size_t i = 0; i < members_.size(); ++i) {
+      auto type = members_[i]->type();
+
+      offset = align_to(offset, type->alignment());
       members_[i]->set_offset(offset);
       members_[i]->set_index(i);
       members_[i]->set_owner(this);
-      offset += members_[i]->type()->size_in_bytes();
+      offset += type->size_in_bytes();
+
+      // Struct alignment is determined by the type of maximum alignment.
+      alignment = std::max(alignment, type->alignment());
     }
+
+    layout_.size = align_to(offset, alignment);
+    layout_.alignment = alignment;
   }
 
-  /// \brief Get the name of struct.
-  ///
-  /// \return The name of struct.
+  /// \return The tag of struct.
   std::string name() const { return name_; }
 
-  size_t size_in_bytes() const override {
-    return std::accumulate(members_.begin(), members_.end(), 0,
-                           [](size_t init, auto const& m) {
-                             return init + m->type()->size_in_bytes();
-                           });
-  }
-
-  /// \brief Dump the member infomration inside this struct.
-  void dump_member_info(std::ostream& os) const {
-    for (auto const& mem : members_) {
-      os << *mem.get() << std::endl;
+  /// Dump the member infomration inside this struct.
+  void dump(std::ostream& os) const {
+    for (const auto& mem : members_) {
+      mem->dump(os);
     }
   }
 
-  /// \brief Get a member from the struct by its name.
+  /// Get a member from the struct by its name.
   ///
   /// \param name The name of the member to search for.
   /// \return A non owning pointer to the member if it exists, nullptr
@@ -578,23 +539,17 @@ class StructType : public Type {
   bool is_packed() const { return meta_ & kIsPacked; }
   bool is_literal() const { return meta_ & kIsLiteral; }
 
-  /// \brief Check this type has an identity that has no body.
-  ///
   /// \return `true` if this type has an identity that has no body, `false`
   ///         otherwise.
   bool is_opaque() const { return (meta_ & kHasBody) == 0; }
 
-  /// \brief Check this type is a sized type.
-  ///
   /// \return `true` if this type is a sized type, `false` otherwise.
   bool is_sized() const { return meta_ & kIsSized; }
 
-  /// \brief Get the number of members inside the structure.
-  ///
   /// \return The number of members.
   unsigned get_num_members() const { return members_.size(); }
 
-  /// \brief Get the member's type at specified index.
+  /// Get the member's type at specified index.
   ///
   /// \param n Member index.
   /// \return Member type at specified index.
@@ -604,7 +559,7 @@ class StructType : public Type {
     return members_[n]->type();
   }
 
-  /// \brief Check if this type is equal to another type.
+  /// Check if this type is equal to another type.
   ///
   /// Two `struct` are considered same if they have same name.
   /// We may don't need to check the members.
@@ -622,7 +577,7 @@ class StructType : public Type {
   }
 
   static inline bool classof(const ObserverPtr<Type> type) {
-    return type->id() == Type::kStruct;
+    return type->is_struct();
   }
 
  private:
@@ -631,87 +586,95 @@ class StructType : public Type {
   std::vector<std::unique_ptr<Member>> members_;
 };
 
-/// \brief This class manages type information.
+class PointerType : public Type {
+ public:
+  PointerType(ObserverPtr<Type> base) : Type{Type::kPointer, base} {
+    assert(base);
+  }
+};
+
+/// This class manages type information.
 ///
 /// The type information can be shared among all nodes and variables.
 /// The returned pointer to `Type` must not be freed manually.
-class TypeMgr {
+///
+/// It provides various static methods to retrieve and create type instances,
+/// including primitive types (e.g., char, int, float), pointer types,
+/// array types, and user-defined struct types. The factory ensures that
+/// only one instance of each unique type is created and reused.
+class TypeFactory {
  public:
-  static ObserverPtr<Type> get_integer(Type::TypeID type_id) {
-    assert(is_integer_type(type_id));
+  /// @name Get Char
+  /// @{
 
-    // If the type identifier is not specified as `unsigned`, it defaults to
-    // `signed`.
-    // Therefore, `int` is equivalent to `signed int`.
-    if (!(type_id & Type::kUnsigned)) {
-      type_id = type_id | Type::kSigned;
-    }
+  /// \return A pointer to `char` type.
+  static ObserverPtr<Type> get_char() { return get_native(Type::kChar); }
 
-    int nbytes;
+  /// \return A pointer to `signed char` type.
+  static ObserverPtr<Type> get_signed_char() { return get_signed(Type::kChar); }
 
-    if (type_id & Type::kLongLong) {
-      nbytes = sizeof(long long);
-    } else if (type_id & Type::kLong) {
-      nbytes = sizeof(long);
-    } else if (type_id & Type::kShort) {
-      nbytes = sizeof(short);
-    } else if (type_id & Type::kChar) {
-      nbytes = sizeof(char);
-    } else {
-      nbytes = sizeof(int);
-    }
-
-    return get_integer(nbytes * __CHAR_BIT__, type_id);
-  }
-
-  /// \brief Get an integer type with the specified number of bits.
-  ///
-  /// When generating the IR, we may don't care the type of integer whether it's
-  /// `long long`, `short` or `int` since we have the number of bits
-  /// information. But we need to know it's signed or not.
-  ///
-  /// \param num_bits The number of bits for the desired integer type.
-  /// \param type_id A combination of flags indicating whether the type is
-  ///                `signed` or `unsigned`, and includes options like `long
-  ///                long`, etc.
-  /// \return An integer type with the number of bits.
-  static ObserverPtr<Type> get_integer(int num_bits, Type::TypeID type_id) {
-    auto& ty_mgr = instance();
-    auto new_type_id = (type_id & Type::kUnsigned)
-                           ? (Type::kInt | Type::kUnsigned)
-                           : (Type::kInt);
-    auto& int_types = ty_mgr.type_info_[new_type_id];
-
-    auto iter = std::find_if(
-        int_types.begin(), int_types.end(), [num_bits](const auto& uptr) {
-          return static_cast<const IntegerType*>(uptr.get())->num_bits() ==
-                 num_bits;
-        });
-
-    if (iter != int_types.end()) {
-      return iter->get();
-    }
-
-    int_types.push_back(std::make_unique<IntegerType>(num_bits, type_id));
-
-    return int_types.back().get();
-  }
-
-  static ObserverPtr<Type> get_char() { return get_predefined(Type::kChar); }
-
-  static ObserverPtr<Type> get_signed_char() {
-    return get_predefined(Type::kChar | Type::kSigned);
-  }
-
+  /// \return A pointer to `unsigned char` type.
   static ObserverPtr<Type> get_unsigned_char() {
-    return get_predefined(Type::kChar | Type::kUnsigned);
+    return get_unsigned(Type::kChar);
   }
 
-  static ObserverPtr<Type> get_float(Type::TypeID type_id) {
-    return get_predefined(type_id);
+  /// @}
+
+  /// @name Get Integer
+  /// @{
+
+  static ObserverPtr<Type> get_signed_bits(int nbits) {
+    return get_bits(Index::kSigned, nbits);
   }
 
-  /// \brief Get a function type with the specified signature.
+  static ObserverPtr<Type> get_unsigned_bits(int nbits) {
+    return get_bits(Index::kUnsigned, nbits);
+  }
+
+  static ObserverPtr<Type> get_signed_short() {
+    return get_signed(Type::kShort);
+  }
+
+  static ObserverPtr<Type> get_unsigned_short() {
+    return get_unsigned(Type::kShort);
+  }
+
+  static ObserverPtr<Type> get_signed_int() { return get_signed(Type::kInt); }
+
+  static ObserverPtr<Type> get_unsigned_int() {
+    return get_unsigned(Type::kInt);
+  }
+
+  static ObserverPtr<Type> get_signed_long() { return get_signed(Type::kLong); }
+
+  static ObserverPtr<Type> get_unsigned_long() {
+    return get_unsigned(Type::kLong);
+  }
+
+  static ObserverPtr<Type> get_signed_long_long() {
+    return get_signed(Type::kLongLong);
+  }
+
+  static ObserverPtr<Type> get_unsigned_long_long() {
+    return get_unsigned(Type::kLongLong);
+  }
+
+  /// @}
+
+  /// @name Get Float
+  /// @{
+
+  static ObserverPtr<Type> get_float() { return get_native(Type::kFloat); }
+
+  static ObserverPtr<Type> get_double() { return get_native(Type::kDouble); }
+
+  static ObserverPtr<Type> get_long_double() {
+    return get_native(Type::kDouble | Type::kLong);
+  }
+
+  /// @}
+
+  /// Get a function type with the specified signature.
   ///
   /// \param return_type The return type of the function.
   /// \param params The parameter types of the function.
@@ -720,28 +683,18 @@ class TypeMgr {
   static ObserverPtr<Type> get_function(
       ObserverPtr<Type> return_type,
       const std::vector<ObserverPtr<Type>>& params, bool is_var_arg) {
-    auto& ty_mgr = instance();
-    auto& fn_types = ty_mgr.type_info_[Type::kFunction];
-    auto fn_match = [&](const auto& uptr) {
+    auto fn = [&](const auto& uptr) {
       auto fp = static_cast<const FunctionType*>(uptr.get());
 
       return fp->return_type() == return_type && fp->params() == params &&
              fp->is_var_arg() == is_var_arg;
     };
 
-    auto iter = std::find_if(fn_types.begin(), fn_types.end(), fn_match);
-
-    if (iter != fn_types.end()) {
-      return iter->get();
-    }
-
-    fn_types.push_back(
-        std::make_unique<FunctionType>(return_type, params, is_var_arg));
-
-    return fn_types.back().get();
+    return get<FunctionType>(Index::kNative, Type::kFunction, fn, return_type,
+                             params, is_var_arg);
   }
 
-  /// \brief Get a function type taking no parameters.
+  /// Get a function type taking no parameters.
   ///
   /// \param return_type The return type of the function.
   /// \param is_var_arg Indicates if the function is variadic.
@@ -751,13 +704,13 @@ class TypeMgr {
     return get_function(return_type, {}, is_var_arg);
   }
 
-  /// \brief Get a pointer type for the specified `base` type.
+  /// Get a pointer type for the specified `base` type.
   ///
   /// For example, we could get a `int*` type through:
   ///
   /// \code
-  /// auto int_type = TypeMgr::get_primitive(kInt);
-  /// auto ptr_to_int_type = TypeMgr::get_pointer(int_type);
+  /// auto int_type = TypeFactory::get_primitive(kInt);
+  /// auto ptr_to_int_type = TypeFactory::get_pointer(int_type);
   /// \endcode
   ///
   /// \param base Base type.
@@ -765,74 +718,59 @@ class TypeMgr {
   static ObserverPtr<Type> get_pointer(ObserverPtr<Type> base) {
     assert(base);
 
-    auto& ty_mgr = instance();
-    auto& ptr_types = ty_mgr.type_info_[Type::kPointer];
-    auto ptr_match = [base](const auto& uptr) { return uptr->base() == base; };
+    auto fn = [base](const auto& uptr) { return uptr->base() == base; };
 
-    auto iter = std::find_if(ptr_types.begin(), ptr_types.end(), ptr_match);
-
-    if (iter != ptr_types.end()) {
-      return iter->get();
-    }
-
-    ptr_types.push_back(std::make_unique<Type>(Type::kPointer, base));
-
-    return ptr_types.back().get();
+    return get<PointerType>(Index::kNative, Type::kPointer, fn, base);
   }
 
-  /// \brief Get an array type.
+  /// Get an array type by specified length and base type.
   ///
-  /// For example, we could get `int[8]` type through:
+  /// For example, we could get type of `int[8]` through:
   ///
   /// \code
-  /// auto int_type = TypeMgr::get_integer(kInt);
-  /// auto array_type = TypeMgr::get_array(8, int_type);
+  /// auto int_type = TypeFactory::get__signed_int();
+  /// auto arr_type = TypeFactory::get_array(8, int_type);
   /// \endcode
   ///
   /// \param size The number of elements in array.
   /// \param base The base type.
-  /// \return An `array` type based on the `base` type.
+  /// \return A pointer to `array` type.
   static ObserverPtr<Type> get_array(size_t length, ObserverPtr<Type> base) {
     assert(base);
 
-    auto& ty_mgr = instance();
-    auto& arr_types = ty_mgr.type_info_[Type::kArray];
-    auto arr_match = [length, base](const auto& uptr) {
+    auto fn = [length, base](const auto& uptr) {
       auto arr = static_cast<const ArrayType*>(uptr.get());
 
       return arr->length() == length && arr->base() == base;
     };
 
-    auto iter = std::find_if(arr_types.begin(), arr_types.end(), arr_match);
-
-    if (iter != arr_types.end()) {
-      return iter->get();
-    }
-
-    arr_types.push_back(std::make_unique<ArrayType>(length, base));
-
-    return arr_types.back().get();
+    return get<ArrayType>(Index::kNative, Type::kArray, fn, length, base);
   }
 
   static ObserverPtr<Type> get_struct(
       const std::string& name, std::vector<std::unique_ptr<Member>> members) {
-    auto& ty_mgr = instance();
-    auto& st_types = ty_mgr.type_info_[Type::kStruct];
-    auto st_match = [&name](const auto& uptr) {
+    // Two structs are considered match if they have same tag and all the
+    // members have identical type.
+    auto fn = [&](const auto& uptr) {
       auto st = static_cast<const StructType*>(uptr.get());
 
-      return st->name() == name;
+      if (st->name() != name || st->get_num_members() != members.size()) {
+        return false;
+      }
+
+      for (unsigned i = 0; i < st->get_num_members(); ++i) {
+        if (st->get_member_type(i) != members[i]->type()) {
+          return false;
+        }
+      }
+
+      return true;
     };
 
-    auto iter = std::find_if(st_types.begin(), st_types.end(), st_match);
-
-    if (iter != st_types.end()) {
-      return iter->get();
-    }
-
-    st_types.push_back(std::make_unique<StructType>(name, std::move(members)));
-
-    return st_types.back().get();
+    // It's safe to `std::move(members)` though `fn` references `members`.
+    // Because it's a rvalue referenece, we do move after `fn` check passes.
+    return get<StructType>(Index::kNative, Type::kStruct, fn, name,
+                           std::move(members));
   }
 
   template <typename... Types>
@@ -848,48 +786,96 @@ class TypeMgr {
   }
 
  private:
-  /// \brief Retrieve a static instance of type manager.
-  ///
-  /// \return An instance of type manager.
-  static TypeMgr& instance() {
-    static TypeMgr ty_mgr;
+  enum Index { kNative = 0, kSigned = 1, kUnsigned = 2, kMax };
 
-    return ty_mgr;
-  }
+  template <typename T, typename Fn, typename... Args>
+  static ObserverPtr<Type> get(Index index, Type::ID type_id, Fn&& fn,
+                               Args&&... args) {
+    auto& factory = instance();
+    auto& types = factory.type_info_[index][type_id];
+    auto iter = std::find_if(types.begin(), types.end(), std::forward<Fn>(fn));
 
-  static ObserverPtr<Type> get_predefined(Type::TypeID type_id) {
-    assert(type_id & (Type::kFloat | Type::kDouble | Type::kChar));
-
-    auto& ty_mgr = instance();
-    auto& type_info = ty_mgr.type_info_;
-
-    return type_info[type_id].back().get();
-  }
-
-  TypeMgr() { init(); }
-
-  /// \brief Initializes type information with predefined values.
-  ///
-  /// This includes basic types such as `char`, `float`, and `double`,
-  /// which differ from `int` types, the latter being specified by
-  /// their respective bit widths.
-  void init() {
-    for (auto type_id : {Type::kChar, Type::kChar | Type::kSigned,
-                         Type::kChar | Type::kUnsigned, Type::kInt,
-                         Type::kInt | Type::kUnsigned, Type::kFloat,
-                         Type::kDouble, Type::kPointer, Type::kArray,
-                         Type::kStruct, Type::kFunction, Type::kLabels}) {
-      type_info_.emplace(type_id, std::vector<std::unique_ptr<Type>>{});
+    if (iter != types.end()) {
+      return iter->get();
     }
 
-    for (auto type_id :
-         {Type::kChar, Type::kChar | Type::kSigned,
-          Type::kChar | Type::kUnsigned, Type::kFloat, Type::kDouble}) {
-      type_info_[type_id].push_back(std::make_unique<Type>(type_id));
+    types.push_back(std::make_unique<T>(std::forward<Args>(args)...));
+
+    return types.back().get();
+  }
+
+  /// Get an integer type with the specified number of bits.
+  ///
+  /// When generating the IR, we may don't care the type of integer whether it's
+  /// `long long`, `short` or `int` since we have the number of bits
+  /// information. But we need to know it's signed or not.
+  ///
+  /// \param index Indicate the type is `signed` or `unsigned`.
+  /// \param nbits The number of bits for the desired integer type.
+  /// \return An integer type with the number of bits.
+  static ObserverPtr<Type> get_bits(Index index, int nbits) {
+    auto fn = [nbits](const auto& uptr) {
+      return static_cast<const IntegerType*>(uptr.get())->num_bits() == nbits;
+    };
+
+    return get<IntegerType>(index, Type::kBits, fn, Type::kBits, nbits);
+  }
+
+  /// \return A static instance of type factory.
+  static TypeFactory& instance() {
+    static TypeFactory factory;
+
+    return factory;
+  }
+
+  static ObserverPtr<Type> get_native(Type::ID type_id) {
+    return get_predefined(Index::kNative, type_id);
+  }
+
+  static ObserverPtr<Type> get_signed(Type::ID type_id) {
+    return get_predefined(Index::kSigned, type_id);
+  }
+
+  static ObserverPtr<Type> get_unsigned(Type::ID type_id) {
+    return get_predefined(Index::kUnsigned, type_id);
+  }
+
+  static ObserverPtr<Type> get_predefined(Index index, Type::ID type_id) {
+    assert(0 <= index && index < Index::kMax);
+
+    auto& types = instance().type_info_[index];
+
+    return types[type_id].back().get();
+  }
+
+  /// Initialize the factory with predefined types.
+  TypeFactory() {
+    for (auto type_id : {Type::kChar, Type::kFloat, Type::kDouble,
+                         Type::kLong | Type::kDouble}) {
+      type_info_[kNative][type_id].push_back(std::make_unique<Type>(type_id));
+    }
+
+    for (auto type_id : {Type::kChar, Type::kShort, Type::kInt, Type::kLong,
+                         Type::kLongLong}) {
+      auto [nbytes, _] = type_id_to_layout(type_id);
+      auto nbits = nbytes * __CHAR_BIT__;
+
+      type_info_[kSigned][type_id].push_back(
+          std::make_unique<IntegerType>(type_id | Type::kSigned, nbits));
+      type_info_[kUnsigned][type_id].push_back(
+          std::make_unique<IntegerType>(type_id | Type::kUnsigned, nbits));
     }
   }
 
-  std::map<Type::TypeID, std::vector<std::unique_ptr<Type>>> type_info_;
+  /// Index:
+  /// - native   => char, float, double, long double, pointer, array, struct,
+  ///               function, label
+  /// - signed   => char, short, int, long, long long
+  /// - unsigned => char, short, int, long, long long
+  using K = Type::ID;
+  using V = std::vector<std::unique_ptr<Type>>;
+
+  std::array<std::map<K, V>, kMax> type_info_;
 };
 
 }  // namespace chibicpp
