@@ -96,10 +96,20 @@ class Scope {
   /// \return Pointer to the variable if found, nullptr otherwise.
   ObserverPtr<Var> search_var(const std::string& name) const;
 
-  /// \brief Append the variable into current scope.
+  /// Append the variable into current scope.
   ///
   /// \param var A pointer to the variable.
   void append_var(ObserverPtr<Var> var) { vars_.push_back(var); }
+
+  /// Clears all variables in the current scope, and recursively clears the
+  /// parent scope if it exists.
+  void clear() {
+    vars_.clear();
+
+    if (any_parent_) {
+      any_parent_->clear();
+    }
+  }
 
  private:
   /// The parent scope for this scope.  This is null for the
@@ -253,6 +263,12 @@ class FunctionScope {
     return sym_table_->create_string_literal(content, type);
   }
 
+  ObserverPtr<Var> create_typedef(const std::string& name,
+                                  ObserverPtr<Type> type,
+                                  ObserverPtr<Type> type_def) {
+    return sym_table_->create_typedef(name, type, type_def);
+  }
+
   /// Search for the variable by name specified by the parameter.
   ///
   /// \param ident The name of the variable.
@@ -285,6 +301,15 @@ class FunctionScope {
     var_stack_.leave();
   }
 
+  std::unique_ptr<SymbolTable> release_symbol_table() {
+    // Need to disable scope stack.
+    var_stack_.get_scope()->clear();
+    tag_stack_.get_scope()->clear();
+    static_stack_.get_scope()->clear();
+
+    return std::move(sym_table_);
+  }
+
  protected:
   /// The symbol table keep track of all the variables within the function.
   std::unique_ptr<SymbolTable> sym_table_;
@@ -303,11 +328,6 @@ class ProgramScope : public FunctionScope {
   ProgramScope()
       : FunctionScope{Scope::kTranslationUnitScope},
         func_scope_{std::make_unique<Scope>(Scope::kTranslationUnitScope)} {}
-
-  ObserverPtr<Var> create_global(const std::string& ident,
-                                 ObserverPtr<Type> type) {
-    return sym_table_->create_var(ident, type, 0);
-  }
 
  private:
   /// The function declared or defined in the global scope.

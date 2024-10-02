@@ -3,6 +3,7 @@
 #include <cstring>
 #include <fstream>
 
+#include "chibicpp/ast/context.hh"
 #include "chibicpp/codegen/backend.hh"
 #include "chibicpp/lex/tokenizer.hh"
 #include "chibicpp/parser/parser.hh"

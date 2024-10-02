@@ -58,6 +58,7 @@ class Type {
     kLongLong = 0x10000,
 
     kBits = 0x20000,
+    kTypedef = 0x40000,
 
     kPrimitive = kChar | kInt | kFloat | kDouble,
     kTypeModifier = kSigned | kUnsigned | kShort | kLong | kLongLong,
@@ -157,31 +158,6 @@ class Type {
   size_t size_in_bytes() const { return layout_.size; }
 
   ///@}
-
-  /// Clear signed modifier.
-  void clear_signed() {
-    unsigned mask = ~kSigned;
-    id_ = static_cast<ID>(id_ & mask);
-  }
-
-  /// Clear unsigned modifier.
-  void clear_unsigned() {
-    unsigned mask = ~kUnsigned;
-    id_ = static_cast<ID>(id_ & mask);
-  }
-
-  /// Set signed modifier.
-  // A type can't be signed and unsigned simutaneously.
-  void set_signed() {
-    clear_unsigned();
-    id_ = id_ | kSigned;
-  }
-
-  /// Set unsigned modifier.
-  void set_unsigned() {
-    clear_signed();
-    id_ = id_ | kUnsigned;
-  }
 
   /// Get detailed type information for this type.
   ///
@@ -588,9 +564,20 @@ class StructType : public Type {
 
 class PointerType : public Type {
  public:
-  PointerType(ObserverPtr<Type> base) : Type{Type::kPointer, base} {
+  explicit PointerType(ObserverPtr<Type> base) : Type{Type::kPointer, base} {
     assert(base);
   }
+};
+
+class TypedefType : public Type {
+ public:
+  explicit TypedefType(const std::string& name)
+      : Type{Type::kTypedef}, name_{name} {}
+
+  const std::string& name() const { return name_; }
+
+ private:
+  std::string name_;
 };
 
 /// This class manages type information.
@@ -783,6 +770,16 @@ class TypeFactory {
      ...);
 
     return get_struct(name, std::move(members));
+  }
+
+  static ObserverPtr<Type> get_typedef(const std::string& name) {
+    auto fn = [&](const auto& uptr) {
+      auto type = static_cast<const TypedefType*>(uptr.get());
+
+      return type->name() == name;
+    };
+
+    return get<TypedefType>(Index::kNative, Type::kTypedef, fn, name);
   }
 
  private:

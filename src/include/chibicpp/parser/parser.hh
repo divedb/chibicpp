@@ -4,7 +4,6 @@
 
 #include "chibicpp/ast/node.hh"
 #include "chibicpp/parser/scope.hh"
-#include "chibicpp/util/observer_ptr.hh"
 
 namespace chibicpp {
 
@@ -43,6 +42,12 @@ class Parser {
   ///
   /// \return
   std::unique_ptr<Node> parse_stmt();
+  std::unique_ptr<Node> parse_while_stmt();
+  std::unique_ptr<Node> parse_for_stmt();
+  std::unique_ptr<Node> parse_block_stmt();
+  std::unique_ptr<Node> parse_typedef_stmt();
+  std::unique_ptr<Node> parse_if_stmt();
+
   std::unique_ptr<Node> parse_expr();
   std::unique_ptr<Node> parse_assign();
   std::unique_ptr<Node> parse_equality();
@@ -93,10 +98,7 @@ class Parser {
   /// \param lineno The line number where the struct is declared.
   /// \return A string representing the generated anonymous struct name.
   static std::string gen_anonymous_struct_name(int lineno) {
-    static int unique_id = 0;
-
-    return "__anonymous_struct__" + std::to_string(unique_id++) + ':' +
-           std::to_string(lineno);
+    return "__anonymous_struct__" + std::to_string(lineno);
   }
 
   /// Determine whether the next top-level item is a function or a global
@@ -108,9 +110,21 @@ class Parser {
   bool is_typename();
 
   /// @}
+  ObserverPtr<Var> find_tag(const std::string& ident);
+  ObserverPtr<FunctionScope> scope() const { return context_.scope; }
+
+  class Context {
+   public:
+    ObserverPtr<FunctionScope> scope;
+  };
+
+  void set_fn_scope() { context_.scope = &fn_scope_; }
+  void set_pg_scope() { context_.scope = &pg_scope_; }
 
   Lexer& lexer_;
-  VarScope scope_;
+  Context context_;
+  FunctionScope fn_scope_;
+  ProgramScope pg_scope_;
 };
 
 }  // namespace chibicpp

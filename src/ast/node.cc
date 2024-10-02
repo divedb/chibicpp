@@ -37,7 +37,7 @@ void Node::update_type() {
     case Node::kLe:
     case Node::kFunCall:
     case Node::kNum:
-      type_ = TypeFactory::get_signed_int();
+      type_ = TypeFactory::get_signed_long();
 
       return;
 

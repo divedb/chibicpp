@@ -8,6 +8,7 @@
 
 #include "chibicpp/ast/type.hh"
 #include "chibicpp/lex/token.hh"
+#include "chibicpp/parser/symbol_table.hh"
 
 namespace chibicpp {
 
@@ -15,70 +16,82 @@ class Member;
 
 class Var {
  public:
-  /// Bit shift for local variable's offset.
-  static constexpr auto kOffsetShift = 1;
-
-  /// This mask is used to determine if a variable is global
-  /// by checking the lowest bit of the offset.
-  static constexpr auto kGlobalVarTypeMask = 0x01;
+  static constexpr auto kInvalidOffset = -1;
 
   /// @name Constructor
   /// @{
 
-  /// \brief Construct a local variable.
+  /// Construct a local variable.
   ///
   /// \param name The name of the variable.
   /// \param type The type of the variable.
   /// \param offset The offset of the variable from base pointer (rbp).
   Var(const std::string& name, ObserverPtr<Type> type, int offset)
-      : name_{name}, type_{type}, offset_{offset << kOffsetShift} {}
+      : name_{name}, type_{type}, offset_{offset} {}
 
-  /// \brief Construct a global variable.
+  /// Construct a global variable.
   ///
   /// \param name The name of the variable.
   /// \param type The type of the variable.
   Var(const std::string& name, ObserverPtr<Type> type)
-      : name_{name}, type_{type}, offset_{kGlobalVarTypeMask} {}
+      : Var{name, type, kInvalidOffset} {}
 
-  /// \brief Construct a global variable of string literal type.
+  /// Construct a global variable of string literal type.
+  ///
+  /// For example, the following code demonstrates creating a label constant
+  /// ".LC" in rodata section, the content is "hello world" and the type is
+  /// "const char*".
+  ///
+  /// \code
+  /// const char* p = "hello world";
+  /// \endcode
   ///
   /// \param label The label of the string literal.
   /// \param content The content of string literal.
   /// \param type The type of the variable.
   Var(const std::string& label, const std::string& content,
       ObserverPtr<Type> type)
-      : name_{label},
-        literal_{content},
-        type_{type},
-        offset_{kGlobalVarTypeMask} {}
+      : name_{label}, literal_{content}, type_{type}, offset_{kInvalidOffset} {}
+
+  /// Construct a typedef.
+  ///
+  /// For example:
+  /// Type of `MyInt` is `int` and type_def of `MyInt` is `int`.
+  /// Type of `MyInt2 is `MyInt` and type_def of `MyInt2` is `int`.
+  /// Type of `MyInt3` is `MyInt2` and type_def of `MyInt3` is `int`.
+  ///
+  /// This may be helpful to keep track of the type chain.
+  ///
+  /// \code
+  /// typedef int MyInt;
+  /// typedef MyInt MyInt2;
+  /// typedef MyInt2 MyInt3;
+  /// \endcode
+  ///
+  /// \param name The name of the variable.
+  /// \param type The type of the variable.
+  /// \param type_def The real type of the variable.
+  Var(const std::string& name, ObserverPtr<Type> type,
+      ObserverPtr<Type> type_def)
+      : name_{name}, type_{type}, type_def_{type_def} {}
 
   /// @}
 
-  /// \brief Get name of the variable.
-  ///
-  /// \return Name of variable.
+  /// \return The name of variable.
   std::string name() const { return name_; }
 
-  /// \brief Get type of the variable.
-  ///
-  /// Note: This is non-owning pointer.
-  ///
-  /// \return Type of variable.
+  /// \return The type of variable.
   ObserverPtr<Type> type() const { return type_; }
 
-  /// \brief Get offset of the variable.
-  ///
   /// Note: This only make sense when this variable is local.
   ///
-  /// \return Offset of variable.
+  /// \return The offset of variable.
   int offset() const {
     assert(is_local());
 
-    return offset_ >> kOffsetShift;
+    return offset_;
   }
 
-  /// \brief Get string literal of the variable.
-  ///
   /// \return A string literal.
   const std::string& string_literal() const {
     assert(is_string_literal());
@@ -86,31 +99,32 @@ class Var {
     return literal_;
   }
 
-  /// \brief Check if the variable is local.
-  ///
-  /// \return `true` if the variable is local, otherwise `false`.
+  /// \return
+  ObserverPtr<Type> type_def() const { return type_def_; }
+
+  /// \return `true` if the variable is local, `false` otherwise.
   bool is_local() const { return !is_global(); }
 
-  /// \brief Check if the variable is global.
-  ///
-  /// \return `true` if the variable is global, otherwise `false`.
-  bool is_global() const { return offset_ & kGlobalVarTypeMask; }
+  /// \return `true` if the variable is global, `false` otherwise.
+  bool is_global() const { return offset_ == kInvalidOffset; }
 
-  /// \brief Check if the variable is string literal.
-  ///
-  /// \return `true` if the variable is string literal, otherwise `false`.
+  /// \return `true` if the variable is string literal, `false` otherwise.
   bool is_string_literal() const { return is_global() && !literal_.empty(); }
 
-  /// \brief Update variable's offset.
+  /// \return `true` if the variable is a typedef, `false` otherwise.
+  bool is_typedef() const { return static_cast<bool>(type_def_); }
+
+  /// Update variable's offset.
   ///
-  /// \param offset New offset.
-  void set_offset(int offset) { offset_ = offset << kOffsetShift; }
+  /// \param offset The new offset.
+  void set_offset(int offset) { offset_ = offset; }
 
  private:
-  std::string name_;        ///< Do we shared the memory buffer
-  std::string literal_;     ///< String literal.
-  ObserverPtr<Type> type_;  ///< Variable type.
-  int offset_;              ///< Local variable offset from rbp register.
+  std::string name_;            ///< The name of variable.
+  std::string literal_;         ///< String literal.
+  ObserverPtr<Type> type_;      ///< Variable type.
+  ObserverPtr<Type> type_def_;  ///< Typedef.
+  int offset_;                  ///< Local variable offset from rbp register.
 };
 
 class Node {
@@ -153,16 +167,20 @@ class Node {
 
   void update_type();
 
-  /// \brief Make a deep clone of the node.
+  /// Make a deep clone of the node.
   ///
   /// \return
   std::unique_ptr<Node> clone() const;
 
-  /// \brief Make a node type of variable.
+  static std::unique_ptr<Node> make_empty() {
+    return std::make_unique<Node>(Node::kEmpty);
+  }
+
+  /// Make a node type of variable.
   ///
   /// \param var A pointer to variable.
   /// \return
-  static std::unique_ptr<Node> make_a_var(ObserverPtr<Var> var) {
+  static std::unique_ptr<Node> make_var(ObserverPtr<Var> var) {
     auto node = std::make_unique<Node>(Node::kVar);
 
     node->var_ = var;
@@ -171,7 +189,7 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_number(long v) {
+  static std::unique_ptr<Node> make_number(long v) {
     auto node = std::make_unique<Node>(Node::kNum);
 
     node->num_ = v;
@@ -180,9 +198,8 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_binary(NodeID id,
-                                             std::unique_ptr<Node> lhs,
-                                             std::unique_ptr<Node> rhs) {
+  static std::unique_ptr<Node> make_binary(NodeID id, std::unique_ptr<Node> lhs,
+                                           std::unique_ptr<Node> rhs) {
     auto node = std::make_unique<Node>(id);
 
     node->lhs_ = std::move(lhs);
@@ -192,17 +209,17 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_unary(NodeID id,
-                                            std::unique_ptr<Node> expr) {
-    auto node = make_a_binary(id, std::move(expr), nullptr);
+  static std::unique_ptr<Node> make_unary(NodeID id,
+                                          std::unique_ptr<Node> expr) {
+    auto node = make_binary(id, std::move(expr), nullptr);
 
     node->update_type();
 
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_member(std::unique_ptr<Node> expr,
-                                             ObserverPtr<Member> member) {
+  static std::unique_ptr<Node> make_member(std::unique_ptr<Node> expr,
+                                           ObserverPtr<Member> member) {
     auto node = std::make_unique<Node>(Node::kMember);
 
     node->lhs_ = std::move(expr);
@@ -212,9 +229,9 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_if(std::unique_ptr<Node> cond,
-                                         std::unique_ptr<Node> then,
-                                         std::unique_ptr<Node> els) {
+  static std::unique_ptr<Node> make_if(std::unique_ptr<Node> cond,
+                                       std::unique_ptr<Node> then,
+                                       std::unique_ptr<Node> els) {
     auto node = std::make_unique<Node>(Node::kIf);
 
     node->cond_ = std::move(cond);
@@ -225,8 +242,8 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_while(std::unique_ptr<Node> cond,
-                                            std::unique_ptr<Node> then) {
+  static std::unique_ptr<Node> make_while(std::unique_ptr<Node> cond,
+                                          std::unique_ptr<Node> then) {
     auto node = std::make_unique<Node>(Node::kWhile);
 
     node->cond_ = std::move(cond);
@@ -236,10 +253,10 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_for(std::unique_ptr<Node> init,
-                                          std::unique_ptr<Node> cond,
-                                          std::unique_ptr<Node> inc,
-                                          std::unique_ptr<Node> then) {
+  static std::unique_ptr<Node> make_for(std::unique_ptr<Node> init,
+                                        std::unique_ptr<Node> cond,
+                                        std::unique_ptr<Node> inc,
+                                        std::unique_ptr<Node> then) {
     auto node = std::make_unique<Node>(Node::kFor);
 
     node->init_ = std::move(init);
@@ -251,7 +268,7 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_function_call(
+  static std::unique_ptr<Node> make_function_call(
       const std::string& func_name, std::vector<std::unique_ptr<Node>> args) {
     auto node = std::make_unique<Node>(Node::kFunCall);
 
@@ -262,7 +279,7 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_stmt_expr(
+  static std::unique_ptr<Node> make_stmt_expr(
       std::vector<std::unique_ptr<Node>> body) {
     auto node = std::make_unique<Node>(Node::kStmtExpr);
 
@@ -276,7 +293,7 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_a_block(
+  static std::unique_ptr<Node> make_block(
       std::vector<std::unique_ptr<Node>> body) {
     auto node = std::make_unique<Node>(Node::kBlock);
 
@@ -288,15 +305,15 @@ class Node {
   static std::unique_ptr<Node> make_add(std::unique_ptr<Node> lhs,
                                         std::unique_ptr<Node> rhs) {
     if (lhs->type()->is_integer() && rhs->type()->is_integer()) {
-      return make_a_binary(Node::kAdd, std::move(lhs), std::move(rhs));
+      return make_binary(Node::kAdd, std::move(lhs), std::move(rhs));
     }
 
     if (lhs->type()->base() && rhs->type()->is_integer()) {
-      return make_a_binary(Node::kPtrAdd, std::move(lhs), std::move(rhs));
+      return make_binary(Node::kPtrAdd, std::move(lhs), std::move(rhs));
     }
 
     if (lhs->type()->is_integer() && rhs->type()->base()) {
-      return make_a_binary(Node::kPtrAdd, std::move(rhs), std::move(lhs));
+      return make_binary(Node::kPtrAdd, std::move(rhs), std::move(lhs));
     }
 
     __builtin_unreachable();
@@ -305,15 +322,15 @@ class Node {
   static std::unique_ptr<Node> make_sub(std::unique_ptr<Node> lhs,
                                         std::unique_ptr<Node> rhs) {
     if (lhs->type()->is_integer() && rhs->type()->is_integer()) {
-      return make_a_binary(Node::kSub, std::move(lhs), std::move(rhs));
+      return make_binary(Node::kSub, std::move(lhs), std::move(rhs));
     }
 
     if (lhs->type()->base() && rhs->type()->is_integer()) {
-      return make_a_binary(Node::kPtrSub, std::move(lhs), std::move(rhs));
+      return make_binary(Node::kPtrSub, std::move(lhs), std::move(rhs));
     }
 
     if (lhs->type()->base() && rhs->type()->base()) {
-      return make_a_binary(Node::kPtrDiff, std::move(lhs), std::move(rhs));
+      return make_binary(Node::kPtrDiff, std::move(lhs), std::move(rhs));
     }
 
     __builtin_unreachable();
@@ -370,7 +387,9 @@ class Node {
   ObserverPtr<Member> member_;
 };
 
-class Function {
+class SymbolTable;
+
+class Function : public SymbolTableIterator {
  public:
   struct Prototype {
     ObserverPtr<Type> ret_type;            ///< Return type.
@@ -378,27 +397,23 @@ class Function {
     std::vector<ObserverPtr<Var>> params;  ///< Parameters.
   };
 
-  /// \brief Construct a function with the specified function prototype, body
-  ///        and local variables.
+  /// Construct a function with the specified function prototype, body and
+  /// symbol table.
   ///
   /// \param prototype The prototype of the function.
   /// \param body The function body.
   /// \param locals Local variables within the function.
   Function(std::unique_ptr<Prototype> prototype,
            std::vector<std::unique_ptr<Node>> body,
-           std::vector<std::unique_ptr<Var>> locals,
-           std::vector<std::unique_ptr<Var>> string_literals,
-           std::vector<std::unique_ptr<Var>> statics)
-      : stack_size_{0},
+           std::unique_ptr<SymbolTable> sym_table)
+      : SymbolTableIterator{std::move(sym_table)},
+        stack_size_{},
         prototype_{std::move(prototype)},
-        body_{std::move(body)},
-        locals_{std::move(locals)},
-        string_literals_{std::move(string_literals)},
-        statics_{std::move(statics)} {
+        body_{std::move(body)} {
     update_var_offset();
   }
 
-  /// \brief Get the stack size required for this function.
+  /// Get the stack size required for this function.
   ///
   /// For example, consider a function `foo`. The approximate stack size
   /// required for this function is 3 * sizeof(int).
@@ -409,7 +424,7 @@ class Function {
   /// \return Stack size.
   int stack_size() const { return stack_size_; }
 
-  /// \brief Get function name.
+  /// Get function name.
   ///
   /// \return
   std::string name() const { return prototype_->fname; }
@@ -417,58 +432,45 @@ class Function {
   /// @name Iterators
   /// @{
 
-  /// \brief Returns an iterator to the beginning of the parameter list.
+  /// Returns an iterator to the beginning of the parameter list.
   ///
   /// \return An iterator pointing to the first element of the parameters.
   auto param_begin() { return prototype_->params.begin(); }
   auto param_begin() const { return prototype_->params.begin(); }
 
-  /// \brief Returns an iterator to the end of the parameter list.
+  /// Returns an iterator to the end of the parameter list.
   ///
   /// \return An iterator pointing to the end (past-the-last) element of the
   ///         parameters.
   auto param_end() { return prototype_->params.end(); }
   auto param_end() const { return prototype_->params.end(); }
 
-  /// \brief Returns an iterator to the beginning of the function body.
+  /// Returns an iterator to the beginning of the function body.
   ///
   /// \return An iterator pointing to the first element of the function body.
   auto body_begin() { return body_.begin(); }
   auto body_begin() const { return body_.begin(); }
 
-  /// \brief Returns an iterator to the end of the function body.
+  /// Returns an iterator to the end of the function body.
   ///
   /// \return An iterator pointing to the end (past-the-last) element of the
   ///         function body.
   auto body_end() { return body_.end(); }
   auto body_end() const { return body_.end(); }
 
-  auto string_literal_begin() { return string_literals_.begin(); }
-  auto string_literal_begin() const { return string_literals_.begin(); }
-  auto string_literal_end() { return string_literals_.end(); }
-  auto string_literal_end() const { return string_literals_.end(); }
-
-  auto static_begin() { return statics_.begin(); }
-  auto static_begin() const { return statics_.begin(); }
-  auto static_end() { return statics_.end(); }
-  auto static_end() const { return statics_.end(); }
-
   /// @}
 
-  /// \brief This method is used for debugging purposes.
+  /// This method is used for debugging purposes.
   ///
   /// It prints the variables within this function along with their
   /// corresponding types.
   void dump_var_with_typeinfo(std::ostream& os) const {
-    for (auto& var : locals_) {
+    for (auto iter = var_begin(); iter != var_end(); ++iter) {
+      auto var = iter->get();
+
       os << var->name() << ':' << var->type()->to_string() << std::endl;
     }
   }
-
-  /// \brief Get number of local variables inside this function.
-  ///
-  /// \return Number of local variables.
-  int local_var_count() const { return locals_.size(); }
 
  private:
   void update_var_offset() {
@@ -477,12 +479,12 @@ class Function {
     // TODO(gc): Investigate why we place variables that are used far away
     // from their declaration onto the upper stack. This could affect
     // memory layout and access patterns?
-    for (auto it = locals_.rbegin(); it != locals_.rend(); ++it) {
-      auto type = it->get()->type();
+    for (auto iter = var_rbegin(); iter != var_rend(); ++iter) {
+      auto type = iter->get()->type();
 
       offset = align_to(offset, type->size_in_bytes());
       offset += type->size_in_bytes();
-      it->get()->set_offset(offset);
+      iter->get()->set_offset(offset);
     }
 
     stack_size_ = offset;
@@ -491,51 +493,32 @@ class Function {
   int stack_size_;
   std::unique_ptr<Prototype> prototype_;
   std::vector<std::unique_ptr<Node>> body_;
-  std::vector<std::unique_ptr<Var>> locals_;           ///< The local variables.
-  std::vector<std::unique_ptr<Var>> string_literals_;  ///< The string literals.
-  std::vector<std::unique_ptr<Var>> statics_;  ///< The static variables.
 };
 
-class Program {
+class Program : public SymbolTableIterator {
  public:
   Program() = default;
-  explicit Program(std::vector<std::unique_ptr<Var>> globals,
-                   std::vector<std::unique_ptr<Function>> other)
-      : globals_(std::move(globals)), funcs_(std::move(other)) {}
+  explicit Program(std::vector<std::unique_ptr<Function>> funcs,
+                   std::unique_ptr<SymbolTable> sym_table)
+      : SymbolTableIterator{std::move(sym_table)}, funcs_{std::move(funcs)} {}
 
-  /// \name Iterators.
+  /// \name Iterators
   /// @{
 
-  /// \brief Returns an iterator to the beginning of the functions container.
+  /// Returns an iterator to the beginning of the functions container.
   ///
   /// \return An iterator to the first element of the `funcs_` container.
   auto func_begin() { return funcs_.begin(); }
   auto func_begin() const { return funcs_.begin(); }
 
-  /// \brief Returns an iterator to the end of the functions container.
-  ///
   /// \return An iterator to one past the last element of the `funcs_`
   ///         container.
   auto func_end() { return funcs_.end(); }
   auto func_end() const { return funcs_.end(); }
 
-  /// \brief Returns an iterator to the beginning of the global variables
-  ///        container.
-  /// \return An iterator to the first element of the `globals_` container.
-  auto global_begin() { return globals_.begin(); }
-  auto global_begin() const { return globals_.begin(); }
-
-  /// \brief Returns an iterator to the end of the global variables container.
-  ///
-  /// \return An iterator to one past the last element of the `globals_`
-  ///         container.
-  auto global_end() { return globals_.end(); }
-  auto global_end() const { return globals_.end(); }
-
   /// @}
 
  private:
-  std::vector<std::unique_ptr<Var>> globals_;  ///< The global variables.
   std::vector<std::unique_ptr<Function>> funcs_;
 };
 

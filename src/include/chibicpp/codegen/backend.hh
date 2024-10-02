@@ -12,6 +12,9 @@ class Backend : public AstVisitor {
  public:
   static constexpr const char* kArgReg1[]{"dil", "sil", "dl",
                                           "cl",  "r8b", "r9b"};
+  static constexpr const char* kArgReg2[]{"di", "si", "dx", "cx", "r8w", "r9w"};
+  static constexpr const char* kArgReg4[]{"edi", "esi", "edx",
+                                          "ecx", "r8d", "r9d"};
   static constexpr const char* kArgReg8[]{"rdi", "rsi", "rdx",
                                           "rcx", "r8",  "r9"};
 

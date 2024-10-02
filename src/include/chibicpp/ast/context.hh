@@ -9,7 +9,6 @@ class Function;
 class AstContext {
  public:
   ObserverPtr<Function> func;  ///< Inside a function.
-  /// Scope
 };
 
 }  // namespace chibicpp

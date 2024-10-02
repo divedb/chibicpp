@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chibicpp/util/observer_ptr.hh"
+#include "chibicpp/support/observer_ptr.hh"
 
 namespace chibicpp {
 

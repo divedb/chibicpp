@@ -4,6 +4,7 @@
 #include <iostream>
 #include <iterator>
 
+#include "chibicpp/ast/context.hh"
 #include "chibicpp/ast/node.hh"
 #include "chibicpp/common/error.hh"
 #include "chibicpp/common/macro.hh"
@@ -14,7 +15,7 @@ void Backend::visit_program(ObserverPtr<Program> prog, AstContext& context) {
   stream_ << ".intel_syntax noprefix\n";
 
   // Generate assembly code for each global variable.
-  for (auto iter = prog->global_begin(); iter != prog->global_end(); ++iter) {
+  for (auto iter = prog->var_begin(); iter != prog->var_end(); ++iter) {
     auto var = iter->get();
     auto type = var->type();
     const auto& name = var->name();
@@ -104,15 +105,21 @@ void Backend::visit_function(ObserverPtr<Function> func, AstContext& context) {
     auto var = iter->get();
     int sz = var->type()->size_in_bytes();
 
+    stream_ << "  mov [rbp-" << var->offset() << "], ";
+
     if (sz == 1) {
-      stream_ << "  mov [rbp-" << var->offset() << "], " << kArgReg1[idx]
-              << '\n';
+      stream_ << kArgReg1[idx];
+    } else if (sz == 2) {
+      stream_ << kArgReg2[idx];
+    } else if (sz == 4) {
+      stream_ << kArgReg4[idx];
     } else {
       assert(sz == 8);
 
-      stream_ << "  mov [rbp-" << var->offset() << "], " << kArgReg8[idx]
-              << '\n';
+      stream_ << kArgReg8[idx];
     }
+
+    stream_ << '\n';
 
     idx++;
   }
@@ -423,11 +430,19 @@ void Backend::gen_addr(ObserverPtr<Node> node, AstContext& context) {
 }
 
 void Backend::load(ObserverPtr<Type> type) {
+  auto sz = type->size_in_bytes();
+
   stream_ << "  pop rax\n";
 
-  if (type->size_in_bytes() == 1) {
+  if (sz == 1) {
     stream_ << "  movsx rax, byte ptr [rax]\n";
+  } else if (sz == 2) {
+    stream_ << "  movsx rax, word ptr [rax]\n";
+  } else if (sz == 4) {
+    stream_ << "  movsxd rax, dword ptr [rax]\n";
   } else {
+    assert(sz == 8);
+
     stream_ << "  mov rax, [rax]\n";
   }
 
@@ -435,12 +450,20 @@ void Backend::load(ObserverPtr<Type> type) {
 }
 
 void Backend::store(ObserverPtr<Type> type) {
+  auto sz = type->size_in_bytes();
+
   stream_ << "  pop rdi\n";
   stream_ << "  pop rax\n";
 
-  if (type->size_in_bytes() == 1) {
+  if (sz == 1) {
     stream_ << "  mov [rax], dil\n";
+  } else if (sz == 2) {
+    stream_ << "  mov [rax], di\n";
+  } else if (sz == 4) {
+    stream_ << "  mov [rax], edi\n";
   } else {
+    assert(sz == 8);
+
     stream_ << "  mov [rax], rdi\n";
   }
 

@@ -11,6 +11,8 @@ namespace chibicpp {
 class Type;
 class Var;
 
+class SymbolTableIterator;
+
 class SymbolTable {
  public:
   ObserverPtr<Var> create_var(const std::string& ident, ObserverPtr<Type> type,
@@ -28,7 +30,15 @@ class SymbolTable {
     return create_var(string_literals_, create_label_constant(), content, type);
   }
 
+  ObserverPtr<Var> create_typedef(const std::string& name,
+                                  ObserverPtr<Type> type,
+                                  ObserverPtr<Type> type_def) {
+    return create_var(vars_, name, type, type_def);
+  }
+
  private:
+  friend class SymbolTableIterator;
+
   /// Create a new variable in the table.
   ///
   /// \param ...args Constructor arguments for the variable.
@@ -57,6 +67,37 @@ class SymbolTable {
   std::vector<std::unique_ptr<Var>> tags_;
   /// Keep track of statics.
   std::vector<std::unique_ptr<Var>> statics_;
+};
+
+class SymbolTableIterator {
+ public:
+  explicit SymbolTableIterator(std::unique_ptr<SymbolTable> sym_table)
+      : sym_table_{std::move(sym_table)} {}
+
+  auto string_literal_begin() { return sym_table_->string_literals_.begin(); }
+  auto string_literal_begin() const {
+    return sym_table_->string_literals_.begin();
+  }
+  auto string_literal_end() { return sym_table_->string_literals_.end(); }
+  auto string_literal_end() const { return sym_table_->string_literals_.end(); }
+
+  auto static_begin() { return sym_table_->statics_.begin(); }
+  auto static_begin() const { return sym_table_->statics_.begin(); }
+  auto static_end() { return sym_table_->statics_.end(); }
+  auto static_end() const { return sym_table_->statics_.end(); }
+
+  auto var_begin() { return sym_table_->vars_.begin(); }
+  auto var_begin() const { return sym_table_->vars_.begin(); }
+  auto var_end() { return sym_table_->vars_.end(); }
+  auto var_end() const { return sym_table_->vars_.end(); }
+
+  auto var_rbegin() { return sym_table_->vars_.rbegin(); }
+  auto var_rbegin() const { return sym_table_->vars_.rbegin(); }
+  auto var_rend() { return sym_table_->vars_.rend(); }
+  auto var_rend() const { return sym_table_->vars_.rend(); }
+
+ private:
+  std::unique_ptr<SymbolTable> sym_table_;
 };
 
 }  // namespace chibicpp

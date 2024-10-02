@@ -9,7 +9,7 @@
 
 namespace chibicpp {
 
-/// \brief program ::= function | globle variable
+/// program ::= function | globle variable
 ///
 /// \return
 std::unique_ptr<Program> Parser::parse_program() {
@@ -19,20 +19,24 @@ std::unique_ptr<Program> Parser::parse_program() {
 
   while (!lexer_.is_eof()) {
     if (is_function()) {
-      auto func = parse_function();
-      prog.push_back(std::move(func));
+      set_fn_scope();
+      prog.push_back(parse_function());
 
       // TODO(gc): Trace one function only?
       stack_tracer.clear();
     } else {
+      set_pg_scope();
       parse_global_var();
     }
   }
 
-  return std::make_unique<Program>(scope_.release_globals(), std::move(prog));
+  set_pg_scope();
+
+  return std::make_unique<Program>(std::move(prog),
+                                   scope()->release_symbol_table());
 }
 
-/// \brief function-prototype ::= basetype ident "(" param* ")"
+/// function-prototype ::= basetype ident "(" param* ")"
 ///
 /// \return
 std::unique_ptr<Function::Prototype> Parser::parse_function_prototype() {
@@ -62,25 +66,47 @@ std::vector<std::unique_ptr<Node>> Parser::parse_function_body() {
   return body;
 }
 
-/// \brief function ::= basetype ident "(" params? ")" "{" stmt* "}"
-///        params   ::= param ("," param)*
-///        param    ::= basetype ident
+/// function ::= basetype ident "(" params? ")" "{" stmt* "}"
+/// params   ::= param ("," param)*
+/// param    ::= basetype ident
 ///
 /// @return
 std::unique_ptr<Function> Parser::parse_function() {
   STACK_GUARD();
 
-  scope_.enter(Scope::kFnScope);
+  scope()->enter(Scope::kFnScope);
   auto proto = parse_function_prototype();
   auto body = parse_function_body();
-  scope_.leave();
+  scope()->leave();
 
-  return std::make_unique<Function>(
-      std::move(proto), std::move(body), scope_.release_locals(),
-      scope_.release_string_literals(), scope_.release_statics());
+  return std::make_unique<Function>(std::move(proto), std::move(body),
+                                    scope()->release_symbol_table());
 }
 
-/// \brief stmt ::= "return" expr ";"
+/// C99 6.8 Statements and blocks.
+///
+/// statement ::= labeled-statement
+///             | compound-statement
+///             | expression-statement
+///             | selection-statement
+///             | iteration-statement
+///             | jump-statement
+///
+/// C99 6.8.1 Labeled statements.
+///
+/// labeled-statement ::= identifier:               statement
+///                     | case constant-expression: statement
+///                     | default:                  statement
+///
+/// C99 6.8.2 Compound statement
+///
+/// compound-statement ::= "{" block-item-list? "}"
+/// block-item0list    ::= block-item
+///                      | block-item-list block-item
+/// block-item         ::= declaration
+///                      | statement
+
+/// stmt ::= "return" expr ";"
 ///               | "if" "(" expr ")" stmt ("else" stmt)?
 ///               | "while" "(" expr ")" stmt
 ///               | "for" "(" expr? ";" expr? ";" expr? ")" stmt
@@ -92,76 +118,30 @@ std::unique_ptr<Node> Parser::parse_stmt() {
   STACK_GUARD();
 
   if (lexer_.try_consume("return")) {
-    auto node = Node::make_a_unary(Node::kReturn, parse_expr());
+    auto node = Node::make_unary(Node::kReturn, parse_expr());
     lexer_.expect(";");
 
     return node;
   }
 
   if (lexer_.try_consume("if")) {
-    lexer_.expect("(");
-    auto cond = parse_expr();
-    lexer_.expect(")");
-    auto then = parse_stmt();
-    std::unique_ptr<Node> els;
-
-    if (lexer_.try_consume("else")) {
-      els = parse_stmt();
-    }
-
-    return Node::make_a_if(std::move(cond), std::move(then), std::move(els));
+    return parse_if_stmt();
   }
 
   if (lexer_.try_consume("while")) {
-    lexer_.expect("(");
-    auto cond = parse_expr();
-    lexer_.expect(")");
-    auto then = parse_stmt();
-
-    return Node::make_a_while(std::move(cond), std::move(then));
+    return parse_while_stmt();
   }
 
   if (lexer_.try_consume("for")) {
-    std::unique_ptr<Node> init;
-    std::unique_ptr<Node> cond;
-    std::unique_ptr<Node> inc;
-    std::unique_ptr<Node> then;
-
-    lexer_.expect("(");
-
-    if (!lexer_.try_consume(";")) {
-      init = parse_expr_stmt();
-      lexer_.expect(";");
-    }
-
-    if (!lexer_.try_consume(";")) {
-      cond = parse_expr();
-      lexer_.expect(";");
-    }
-
-    if (!lexer_.try_consume(")")) {
-      inc = parse_expr_stmt();
-      lexer_.expect(")");
-    }
-
-    then = parse_stmt();
-
-    return Node::make_a_for(std::move(init), std::move(cond), std::move(inc),
-                            std::move(then));
+    return parse_for_stmt();
   }
 
   if (lexer_.try_consume("{")) {
-    std::vector<std::unique_ptr<Node>> body;
+    return parse_block_stmt();
+  }
 
-    scope_.enter(Scope::kBlockScope);
-
-    while (!lexer_.try_consume("}")) {
-      body.push_back(parse_stmt());
-    }
-
-    scope_.leave();
-
-    return Node::make_a_block(std::move(body));
+  if (lexer_.try_consume("typedef")) {
+    return parse_typedef_stmt();
   }
 
   if (is_typename()) {
@@ -174,7 +154,90 @@ std::unique_ptr<Node> Parser::parse_stmt() {
   return node;
 }
 
-/// \brief expr ::= assign
+/// iteration-statement ::= "while" "(" expr ")" stmt
+///                       | "do" stmt "while" "(" expr ")"
+///                       | "for" "("
+/// \return
+std::unique_ptr<Node> Parser::parse_while_stmt() {
+  lexer_.expect("(");
+  auto cond = parse_expr();
+  lexer_.expect(")");
+  auto then = parse_stmt();
+
+  return Node::make_while(std::move(cond), std::move(then));
+}
+
+std::unique_ptr<Node> Parser::parse_for_stmt() {
+  std::unique_ptr<Node> init;
+  std::unique_ptr<Node> cond;
+  std::unique_ptr<Node> inc;
+  std::unique_ptr<Node> then;
+
+  lexer_.expect("(");
+
+  if (!lexer_.try_consume(";")) {
+    init = parse_expr_stmt();
+    lexer_.expect(";");
+  }
+
+  if (!lexer_.try_consume(";")) {
+    cond = parse_expr();
+    lexer_.expect(";");
+  }
+
+  if (!lexer_.try_consume(")")) {
+    inc = parse_expr_stmt();
+    lexer_.expect(")");
+  }
+
+  then = parse_stmt();
+
+  return Node::make_for(std::move(init), std::move(cond), std::move(inc),
+                        std::move(then));
+}
+
+std::unique_ptr<Node> Parser::parse_block_stmt() {
+  std::vector<std::unique_ptr<Node>> body;
+
+  scope()->enter(Scope::kBlockScope);
+
+  while (!lexer_.try_consume("}")) {
+    body.push_back(parse_stmt());
+  }
+
+  scope()->leave();
+
+  return Node::make_block(std::move(body));
+}
+
+std::unique_ptr<Node> Parser::parse_typedef_stmt() {
+  Token ident;
+  auto type_def = parse_basetype();
+  lexer_.expect_identider(ident);
+  type_def = parse_type_suffix(type_def);
+  lexer_.expect(";");
+
+  auto type = TypeFactory::get_typedef(ident.as_str());
+  (void)scope()->create_typedef(ident.as_str(), type, type_def);
+
+  return Node::make_empty();
+}
+
+std::unique_ptr<Node> Parser::parse_if_stmt() {
+  lexer_.expect("(");
+  auto cond = parse_expr();
+  lexer_.expect(")");
+  auto then = parse_stmt();
+  std::unique_ptr<Node> els;
+
+  if (lexer_.try_consume("else")) {
+    els = parse_stmt();
+  }
+
+  return Node::make_if(std::move(cond), std::move(then), std::move(els));
+}
+
+/// expr ::= assign
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_expr() {
@@ -183,7 +246,7 @@ std::unique_ptr<Node> Parser::parse_expr() {
   return parse_assign();
 }
 
-/// \brief assign ::= equality ("=" assign)?
+/// assign ::= equality ("=" assign)?
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_assign() {
@@ -192,13 +255,13 @@ std::unique_ptr<Node> Parser::parse_assign() {
   auto node = parse_equality();
 
   if (lexer_.try_consume("=")) {
-    node = Node::make_a_binary(Node::kAssign, std::move(node), parse_assign());
+    node = Node::make_binary(Node::kAssign, std::move(node), parse_assign());
   }
 
   return node;
 }
 
-/// \brief equality ::= relational ("==" relational | "!=" relational)*
+/// equality ::= relational ("==" relational | "!=" relational)*
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_equality() {
@@ -208,11 +271,9 @@ std::unique_ptr<Node> Parser::parse_equality() {
 
   for (;;) {
     if (lexer_.try_consume("==")) {
-      node =
-          Node::make_a_binary(Node::kEq, std::move(node), parse_relational());
+      node = Node::make_binary(Node::kEq, std::move(node), parse_relational());
     } else if (lexer_.try_consume("!=")) {
-      node =
-          Node::make_a_binary(Node::kNe, std::move(node), parse_relational());
+      node = Node::make_binary(Node::kNe, std::move(node), parse_relational());
     } else {
       return node;
     }
@@ -222,7 +283,7 @@ std::unique_ptr<Node> Parser::parse_equality() {
   assert(false);
 }
 
-/// \brief relational ::= add ("<" add | "<=" add | ">" add | ">=" add)*
+/// relational ::= add ("<" add | "<=" add | ">" add | ">=" add)*
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_relational() {
@@ -232,13 +293,13 @@ std::unique_ptr<Node> Parser::parse_relational() {
 
   for (;;) {
     if (lexer_.try_consume("<")) {
-      node = Node::make_a_binary(Node::kLt, std::move(node), parse_add());
+      node = Node::make_binary(Node::kLt, std::move(node), parse_add());
     } else if (lexer_.try_consume("<=")) {
-      node = Node::make_a_binary(Node::kLe, std::move(node), parse_add());
+      node = Node::make_binary(Node::kLe, std::move(node), parse_add());
     } else if (lexer_.try_consume(">")) {
-      node = Node::make_a_binary(Node::kLt, parse_add(), std::move(node));
+      node = Node::make_binary(Node::kLt, parse_add(), std::move(node));
     } else if (lexer_.try_consume(">=")) {
-      node = Node::make_a_binary(Node::kLe, parse_add(), std::move(node));
+      node = Node::make_binary(Node::kLe, parse_add(), std::move(node));
     } else {
       return node;
     }
@@ -248,7 +309,7 @@ std::unique_ptr<Node> Parser::parse_relational() {
   assert(false);
 }
 
-/// \brief add ::= mul ("+" mul | "-" mul)*
+/// add ::= mul ("+" mul | "-" mul)*
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_add() {
@@ -269,7 +330,7 @@ std::unique_ptr<Node> Parser::parse_add() {
   __builtin_unreachable();
 }
 
-/// \brief mul ::= unary ("*" unary | "/" unary)*
+/// mul ::= unary ("*" unary | "/" unary)*
 ///
 /// \return
 std::unique_ptr<Node> Parser::parse_mul() {
@@ -279,9 +340,9 @@ std::unique_ptr<Node> Parser::parse_mul() {
 
   for (;;) {
     if (lexer_.try_consume("*")) {
-      node = Node::make_a_binary(Node::kMul, std::move(node), parse_unary());
+      node = Node::make_binary(Node::kMul, std::move(node), parse_unary());
     } else if (lexer_.try_consume("/")) {
-      node = Node::make_a_binary(Node::kDiv, std::move(node), parse_unary());
+      node = Node::make_binary(Node::kDiv, std::move(node), parse_unary());
     } else {
       return node;
     }
@@ -290,7 +351,7 @@ std::unique_ptr<Node> Parser::parse_mul() {
   __builtin_unreachable();
 }
 
-/// \brief unary ::= ("+" | "-" | "*" | "&")? unary
+/// unary ::= ("+" | "-" | "*" | "&")? unary
 ///                | postfix
 ///
 /// \return
@@ -302,22 +363,21 @@ std::unique_ptr<Node> Parser::parse_unary() {
   }
 
   if (lexer_.try_consume("-")) {
-    return Node::make_a_binary(Node::kSub, Node::make_a_number(0),
-                               parse_unary());
+    return Node::make_binary(Node::kSub, Node::make_number(0), parse_unary());
   }
 
   if (lexer_.try_consume("&")) {
-    return Node::make_a_unary(Node::kAddr, parse_unary());
+    return Node::make_unary(Node::kAddr, parse_unary());
   }
 
   if (lexer_.try_consume("*")) {
-    return Node::make_a_unary(Node::kDeref, parse_unary());
+    return Node::make_unary(Node::kDeref, parse_unary());
   }
 
   return parse_postfix();
 }
 
-/// \brief C99 6.5.2 Postfix operators
+/// C99 6.5.2 Postfix operators
 ///
 /// postfix-expression ::= primary-expression
 ///                      | postfix-expression "[" expression "]"
@@ -340,12 +400,20 @@ std::unique_ptr<Node> Parser::parse_postfix() {
       // x[y] is short for *(x+y)
       auto exp = Node::make_add(std::move(node), parse_expr());
       lexer_.expect("]");
-      node = Node::make_a_unary(Node::kDeref, std::move(exp));
+      node = Node::make_unary(Node::kDeref, std::move(exp));
 
       continue;
     }
 
     if (lexer_.try_consume(".")) {
+      node = parse_struct_ref(std::move(node));
+
+      continue;
+    }
+
+    if (lexer_.try_consume("->")) {
+      // x->y is short for (*x).y
+      node = Node::make_unary(Node::kDeref, std::move(node));
       node = parse_struct_ref(std::move(node));
 
       continue;
@@ -376,34 +444,89 @@ std::unique_ptr<Node> Parser::parse_struct_ref(std::unique_ptr<Node> node) {
                          static_cast<StructType*>(type.get())->name());
   }
 
-  return Node::make_a_member(std::move(node), member);
+  return Node::make_member(std::move(node), member);
 }
 
-/// \brief declaration ::= basetype ident ("[" num "]")* ("=" expr) ";"
+/// declaration ::= basetype ident ("[" num "]")* ("=" expr) ";"
+///               | basetype ";"
 ///
+/// For example: The following code is legal with warning:
+///   warning: declaration does not declare anything [-Wmissing-declarations]
+///
+/// \code
+/// int;
+/// struct Person;
+/// \endcode
+///
+/// \return A pointer to node.
+
+// clang-format off
+/// C99 6.7 Declarations.
+///
+/// Syntax
+/// declaration            ::= declaration-specifiers  init-declarator-list? ";"
+/// declaration-specifiers ::= storage-class-specifier declaration-specifiers?
+///                          | type-specifier          declaration-specifiers?
+///                          | type-qualifier          declaration-specifiers?
+///                          | function-specifier      declaration-specifiers?
+/// init-declarator-list   ::= init-declarator
+///                          | init-declarator-list "," init-declarator
+/// init-declarator        ::= declarator
+///                          | declarator = initializer
+/// declarator             ::= pointer? direct-declarator
+/// direct-declarator      ::= identifier
+///                          | "(" declarator ")"
+///                          | direct-declarator "[" "static" type-qualifier-list? assignment-expression "]"
+///                          | direct-declarator "[" type-qualifier-list  "static" assignment-expression "]"
+///                          | direct-declarator "[" type-qualifier-list?  "*" "]"
+///                          | direct-declarator "(" parameter-type-list ")"
+///                          | direct-declarator "(" identifier-list?    ")"
+/// pointer                ::= "*" type-qualifier-list?
+///                          | "*" type-qualifier-list? pointer
+/// type-qualifier-list    ::= type-qualifier
+///                          | type-qualifier-list type-qualifier
+/// parameter-type-list    ::= parameter-list
+///                          | parameter-list "," "..."
+/// parameter-list         ::= parameter-declaration
+///                          | parameter-list "," parameter-declaration
+/// parameter-declaration  ::= declaration-specifiers declarator
+///                          | declaration-specifiers abstract-declarator?
+/// identifier-list        ::= identifier
+///                          | identifier-list "," identifier
+///
+/// \code
+/// int(a) = 100;
+/// \endcode
 /// \return
+// clang-format on
 std::unique_ptr<Node> Parser::parse_declaration() {
   STACK_GUARD();
 
-  Token ident;
   auto type = parse_basetype();
-  lexer_.expect_identider(ident);
-  type = parse_type_suffix(type);
-  auto var = scope_.create_local_var(ident.as_str(), type);
 
   if (lexer_.try_consume(";")) {
-    return std::make_unique<Node>(Node::kEmpty);
+    return Node::make_empty();
   }
 
+  // Case 1: `int a[8];`.
+  Token ident;
+  lexer_.expect_identider(ident);
+  type = parse_type_suffix(type);
+  auto var = scope()->create_var(ident.as_str(), type);
+
+  if (lexer_.try_consume(";")) {
+    return Node::make_empty();
+  }
+
+  // Case 2: `int a = 8;`.
   lexer_.expect("=");
-  auto lhs = Node::make_a_var(var);
+  auto lhs = Node::make_var(var);
   auto rhs = parse_expr();
   lexer_.expect(";");
 
-  auto node =
-      Node::make_a_binary(Node::kAssign, std::move(lhs), std::move(rhs));
+  auto node = Node::make_binary(Node::kAssign, std::move(lhs), std::move(rhs));
 
-  return Node::make_a_unary(Node::kExprStmt, std::move(node));
+  return Node::make_unary(Node::kExprStmt, std::move(node));
 }
 
 /// primary ::= "(" "{" stmt-expr-tail
@@ -431,39 +554,39 @@ std::unique_ptr<Node> Parser::parse_primary() {
   if (lexer_.try_consume("sizeof")) {
     auto node = parse_unary();
 
-    return Node::make_a_number(node->type()->size_in_bytes());
+    return Node::make_number(node->type()->size_in_bytes());
   }
 
   if (lexer_.try_consume(TokenKind::kIdentifier, token)) {
     // Check function call.
     if (lexer_.try_consume("(")) {
-      return Node::make_a_function_call(token.as_str(), parse_func_args());
+      return Node::make_function_call(token.as_str(), parse_func_args());
     }
 
     // Variable.
     auto const& ident = token.as_str();
-    auto var = scope_.get_var(ident);
+    auto var = scope()->search_var(ident);
 
     if (!var) {
       CHIBICPP_THROW_ERROR(ident + " is not defined.");
     }
 
-    return Node::make_a_var(var);
+    return Node::make_var(var);
   }
 
   // String literal.
   if (lexer_.try_consume(TokenKind::kStrLiteral, token)) {
     // Add an extra terminate '\0'.
     auto const& str = token.as_str();
-    auto type = TypeMgr::get_array(str.size() + 1, TypeMgr::get_char());
-    auto var = scope_.create_string_literal(str, type);
+    auto type = TypeFactory::get_array(str.size() + 1, TypeFactory::get_char());
+    auto var = scope()->create_string_literal(str, type);
 
-    return Node::make_a_var(var);
+    return Node::make_var(var);
   }
 
   lexer_.expect_number(token);
 
-  return Node::make_a_number(token.as_i64());
+  return Node::make_number(token.as_i64());
 }
 
 ObserverPtr<Type> Parser::parse_type_suffix(ObserverPtr<Type> base) {
@@ -478,11 +601,23 @@ ObserverPtr<Type> Parser::parse_type_suffix(ObserverPtr<Type> base) {
   lexer_.expect("]");
   base = parse_type_suffix(base);
 
-  return TypeMgr::get_array(num.as_i64(), base);
+  return TypeFactory::get_array(num.as_i64(), base);
 }
 
-/// \brief basetype ::= ("char" | "int") "*"*
-///
+/// basetype        ::= type-specifier "*"*
+/// type-speicifier ::= void
+///                   | char
+///                   | short
+///                   | int
+///                   | long
+///                   | float
+///                   | double
+///                   | signed
+///                   | _Bool
+///                   | _Imaginary
+///                   | struct-or-union-specifier
+///                   | enum-specifier
+///                   | typedef-name
 /// \return
 ObserverPtr<Type> Parser::parse_basetype() {
   STACK_GUARD();
@@ -490,15 +625,29 @@ ObserverPtr<Type> Parser::parse_basetype() {
   ObserverPtr<Type> type;
 
   if (lexer_.try_consume("char")) {
-    type = TypeMgr::get_char();
+    type = TypeFactory::get_char();
+  } else if (lexer_.try_consume("short")) {
+    type = TypeFactory::get_signed_short();
   } else if (lexer_.try_consume("int")) {
-    type = TypeMgr::get_integer(Type::kInt);
-  } else {
+    type = TypeFactory::get_signed_int();
+  } else if (lexer_.try_consume("long")) {
+    type = TypeFactory::get_signed_long();
+  } else if (lexer_.try_consume("struct")) {
     type = parse_struct_decl();
+  } else {
+    // The type must be typedef.
+    Token ident;
+
+    lexer_.expect_identider(ident);
+    auto var = scope()->search_var(ident.as_str());
+
+    assert(var && var->is_typedef());
+
+    type = var->type_def();
   }
 
   while (lexer_.try_consume("*")) {
-    type = TypeMgr::get_pointer(type);
+    type = TypeFactory::get_pointer(type);
   }
 
   return type;
@@ -510,9 +659,8 @@ bool Parser::is_function() {
   lexer_.mark();
 
   (void)parse_basetype();
-  bool is_func =
-      lexer_.try_consume(TokenKind::kIdentifier, Token::dummy_eof()) &&
-      lexer_.try_consume("(");
+  bool is_func = lexer_.try_consume(TokenKind::kIdentifier, Token::dummy()) &&
+                 lexer_.try_consume("(");
 
   lexer_.reset();
 
@@ -520,21 +668,74 @@ bool Parser::is_function() {
 }
 
 bool Parser::is_typename() {
-  static const std::vector<char const*> kTypenames{"char", "int", "struct"};
+  static const char* kTypenames[]{"char", "short", "int", "long", "struct"};
 
-  return std::find_if(kTypenames.begin(), kTypenames.end(), [this](auto key) {
-           return lexer_.try_peek(key, Token::dummy_eof());
-         }) != kTypenames.end();
+  Token token;
+
+  // Check typename first.
+  for (auto kw : kTypenames) {
+    if (lexer_.try_peek(kw)) {
+      return true;
+    }
+  }
+
+  // Search typedef.
+  if (!lexer_.try_peek(TokenKind::kIdentifier, token)) {
+    return false;
+  }
+
+  auto var = scope()->search_var(token.as_str());
+
+  if (!var || !var->is_typedef()) {
+    return false;
+  }
+
+  return true;
 }
 
+/// C99 6.8.3 Expression and null statements.
+///
+/// Syntax
+/// expr-stmt ::= expr ";"
+///             | ";"
+///
+/// 1. The expression in an expression statement is evaluated as a void
+///    expression for its side effects.
+/// 2. A null statement (consisting of just a semicolon) performs no operations.
+/// 3. If a function call is evaluated as an expression statement for its side
+///    effects only, the discarding of its value may be made explicit by
+///    converting the expression to a void expression by means of a cast.
+///    \code
+///    int p(int);
+///    (void)p(0);
+///    \endcode
+/// 4. A null statement is used to supply an empty loop body to the iteration
+///    statement.
+///    \code
+///    char* s;
+///    while (*s++ != '\0')
+///      ;
+///    \endcode
+/// 5. A null statement may also be used to carry a label just before the
+///    closing } of a compound statement.
+///    \code
+///    while (loop1) {
+///      while (loop2) {
+///        if (want_out)
+///          goto end_loop1;
+///      }
+///    end_loop1: ;
+///    }
+///    \endcode
+/// @return
 std::unique_ptr<Node> Parser::parse_expr_stmt() {
   STACK_GUARD();
 
-  return Node::make_a_unary(Node::kExprStmt, parse_expr());
+  return Node::make_unary(Node::kExprStmt, parse_expr());
 }
 
-/// \brief func-param ::= basetype args*
-///                     | empty
+/// func-param ::= basetype args*
+///              | empty
 ///
 /// \return
 ObserverPtr<Var> Parser::parse_func_param() {
@@ -545,14 +746,14 @@ ObserverPtr<Var> Parser::parse_func_param() {
   lexer_.expect_identider(ident);
   type = parse_type_suffix(type);
 
-  return scope_.create_local_var(ident.as_str(), type);
+  return scope()->create_var(ident.as_str(), type);
 }
 
-/// \brief func-params ::= "(" args ")"
-///        args        ::= empty
-///                      | arg (,arg)*
+/// func-params ::= "(" args ")"
+/// args        ::= empty
+///               | arg (,arg)*
 ///
-/// @return
+/// \return
 std::vector<ObserverPtr<Var>> Parser::parse_func_params() {
   STACK_GUARD();
 
@@ -568,15 +769,11 @@ std::vector<ObserverPtr<Var>> Parser::parse_func_params() {
     params.push_back(parse_func_param());
   }
 
-  // for (auto p : params) {
-  //   std::cout << std::quoted(p->name) << ':' << p->type->to_string()
-  //             << std::endl;
-  // }
-
   return params;
 }
 
-/// \brief func-args ::= "(" (assign ("," assign)*)? ")"
+/// func-args ::= "(" (assign ("," assign)*)? ")"
+///
 /// \return
 std::vector<std::unique_ptr<Node>> Parser::parse_func_args() {
   STACK_GUARD();
@@ -597,7 +794,7 @@ std::vector<std::unique_ptr<Node>> Parser::parse_func_args() {
   return args;
 }
 
-/// \brief global-var ::= basetype ident "("[" num "]")*" ";"
+/// global-var ::= basetype ident "("[" num "]")*" ";"
 void Parser::parse_global_var() {
   STACK_GUARD();
 
@@ -606,10 +803,10 @@ void Parser::parse_global_var() {
   lexer_.expect_identider(ident);
   type = parse_type_suffix(type);
   lexer_.expect(";");
-  scope_.create_global_var(ident.as_str(), type);
+  scope()->create_var(ident.as_str(), type);
 }
 
-/// \brief stmt-expr ::= "(" "{" stmt stmt* "}" ")"
+/// stmt-expr ::= "(" "{" stmt stmt* "}" ")"
 ///
 /// Statement expression is a GNU C extension.
 ///
@@ -619,7 +816,7 @@ std::unique_ptr<Node> Parser::parse_stmt_expr() {
 
   std::vector<std::unique_ptr<Node>> body;
 
-  scope_.enter(Scope::kBlockScope);
+  scope()->enter(Scope::kBlockScope);
   body.push_back(parse_stmt());
 
   while (!lexer_.try_consume("}")) {
@@ -627,7 +824,7 @@ std::unique_ptr<Node> Parser::parse_stmt_expr() {
   }
 
   lexer_.expect(")");
-  scope_.leave();
+  scope()->leave();
 
   // Ensure the last statement in the body is an expression statement.
   if (body.back()->id() != Node::kExprStmt) {
@@ -639,27 +836,36 @@ std::unique_ptr<Node> Parser::parse_stmt_expr() {
   //   std::cout << n->type()->to_string() << std::endl;
   // }
 
-  return Node::make_a_stmt_expr(std::move(body));
+  return Node::make_stmt_expr(std::move(body));
 }
 
-/// \brief struct-decl ::= "struct" "{" struct-member "}"
+/// struct-decl ::= "struct" ident
+///               | "struct" ident? "{" struct-member "}"
 ///
-/// \return
+/// \return A pointer to the struct type.
 ObserverPtr<Type> Parser::parse_struct_decl() {
   STACK_GUARD();
 
+  // Consume the keyword.
   lexer_.expect("struct");
 
-  Token ident;
-  std::string struct_name;
+  Token tag;
+  bool has_tag = lexer_.try_consume_identifier(tag);
 
-  if (lexer_.try_consume(TokenKind::kIdentifier, ident)) {
-    struct_name = ident.as_str();
-  } else {
-    // TODO(gc): Line number can't obtained in parser.
-    struct_name = gen_anonymous_struct_name(0);
+  // Read a struct tag.
+  // For example: `struct Person x;`.
+  if (has_tag && !lexer_.try_peek("{", Token::dummy())) {
+    auto var = find_tag(tag.as_str());
+
+    if (!var) {
+      CHIBICPP_THROW_ERROR("Unknown struct type: ", tag.as_str());
+    }
+
+    return var->type();
   }
 
+  // Then it must be struct declaration.
+  // For example: `struct Person { int age; }`.
   lexer_.expect("{");
 
   std::vector<std::unique_ptr<Member>> members;
@@ -668,10 +874,17 @@ ObserverPtr<Type> Parser::parse_struct_decl() {
     members.push_back(parse_struct_member());
   }
 
-  return TypeMgr::get_struct(struct_name, std::move(members));
+  // An anonymous struct name will be generated if a tag name was not given.
+  auto tag_name = has_tag ? tag.as_str() : gen_anonymous_struct_name(__LINE__);
+  auto type = TypeFactory::get_struct(tag_name, std::move(members));
+
+  // Push it into scope.
+  scope()->create_tag(tag_name, type);
+
+  return type;
 }
 
-/// \brief struct-member ::= basetype ident ("[" num "]")* ";"
+/// struct-member ::= basetype ident ("[" num "]")* ";"
 std::unique_ptr<Member> Parser::parse_struct_member() {
   STACK_GUARD();
 
@@ -683,6 +896,17 @@ std::unique_ptr<Member> Parser::parse_struct_member() {
   lexer_.expect(";");
 
   return std::make_unique<Member>(ident.as_str(), type);
+}
+
+ObserverPtr<Var> Parser::find_tag(const std::string& ident) {
+  // Find the function scope first.
+  auto var = fn_scope_.search_tag(ident);
+
+  if (var) {
+    return var;
+  }
+
+  return pg_scope_.search_tag(ident);
 }
 
 }  // namespace chibicpp

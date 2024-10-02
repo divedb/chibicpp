@@ -3,14 +3,15 @@ NAME
     parser
 HDRS
 SRCS
+    "parser.cc"
     "scope.cc"    
     "symbol_table.cc"
 COPTS
     ${CHIBICPP_LIB_CXXFLAGS}
 DEPS
     ast
-    # lex
-    # util
+    lex
+    util
 ALIAS
     chibicpp::parser
 )

@@ -13,7 +13,11 @@
 
 #pragma once
 
+#include "chibicpp/ast/type.hh"
+
 namespace chibicpp {
+
+class Use;
 
 /// This is a very important LLVM class. It is the base class of all values
 /// computed by a program that may be used as operands to other values. Value is
@@ -29,6 +33,49 @@ namespace chibicpp {
 ///
 /// \brief LLVM Value Representation
 class Value {
+ public:
+  /// An enumeration for keeping track of the concrete subclass of Value that
+  /// is actually instantiated. Values of this enumeration are kept in the
+  /// Value classes SubclassID field. They are used for concrete type
+  /// identification.
+  enum ValueTy {
+    kArgumentVal,               // This is an instance of Argument
+    kBasicBlockVal,             // This is an instance of BasicBlock
+    kFunctionVal,               // This is an instance of Function
+    kGlobalAliasVal,            // This is an instance of GlobalAlias
+    kGlobalVariableVal,         // This is an instance of GlobalVariable
+    kUndefValueVal,             // This is an instance of UndefValue
+    kBlockAddressVal,           // This is an instance of BlockAddress
+    kConstantExprVal,           // This is an instance of ConstantExpr
+    kConstantAggregateZeroVal,  // This is an instance of ConstantAggregateZero
+    kConstantDataArrayVal,      // This is an instance of ConstantDataArray
+    kConstantDataVectorVal,     // This is an instance of ConstantDataVector
+    kConstantIntVal,            // This is an instance of ConstantInt
+    kConstantFPVal,             // This is an instance of ConstantFP
+    kConstantArrayVal,          // This is an instance of ConstantArray
+    kConstantStructVal,         // This is an instance of ConstantStruct
+    kConstantVectorVal,         // This is an instance of ConstantVector
+    kConstantPointerNullVal,    // This is an instance of ConstantPointerNull
+    kMDNodeVal,                 // This is an instance of MDNode
+    kMDStringVal,               // This is an instance of MDString
+    kInlineAsmVal,              // This is an instance of InlineAsm
+    vPseudoSourceValueVal,      // This is an instance of PseudoSourceValue
+    kFixedStackPseudoSourceValueVal,  // This is an instance of
+                                      // FixedStackPseudoSourceValue
+    kInstructionVal,                  // This is an instance of Instruction
+    // Enum values starting at InstructionVal are used for Instructions;
+    // don't add new values here!
+
+    // Markers:
+    kConstantFirstVal = kFunctionVal,
+    kConstantLastVal = kConstantPointerNullVal
+  };
+
+  virtual ~Value();
+
+  /// \return Type of this value.
+  ObserverPtr<Type> type() const { return type_; }
+
  private:
   /// Subclass identifier (for isa/dyn_cast).
   const unsigned char sub_class_id_;
@@ -46,6 +93,9 @@ class Value {
   /// anything.  Subclasses can use it to hold whatever state they find useful.
   /// This field is initialized to zero by the ctor.
   unsigned short subclass_data_;
+
+  ObserverPtr<Type> type_;
+  Use* use_list_;
 };
 
 }  // namespace chibicpp

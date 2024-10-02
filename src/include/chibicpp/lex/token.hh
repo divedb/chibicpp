@@ -87,10 +87,8 @@ struct SourceLocation {
 
 class Token {
  public:
-  /// \brief A utility method to provide a dummy eof token.
-  ///
-  /// \return A token with type of EOF.
-  static Token& dummy_eof() {
+  /// \return A dummy token with type of EOF.
+  static Token& dummy() {
     static Token token;
 
     return token;
@@ -99,10 +97,10 @@ class Token {
   /// @name Constructors.
   /// @{
 
-  /// \brief Construct a EOF token.
+  /// Construct a EOF token.
   Token() : kind_(TokenKind::kEOF) {}
 
-  /// \brief Constructs a token with a string value.
+  /// Constructs a token with a string value.
   ///
   /// This constructor initializes a token with the specified kind, source
   /// location, and a string.
@@ -113,7 +111,7 @@ class Token {
   Token(TokenKind kind, SourceLocation location, std::string const& str)
       : kind_{kind}, location_{location}, data_{str} {}
 
-  /// \brief Constructs a token with a 64-bit integer value.
+  /// Constructs a token with a 64-bit integer value.
   ///
   /// \param kind The kind of the token.
   /// \param location The source location of the token.
@@ -121,7 +119,7 @@ class Token {
   Token(TokenKind kind, SourceLocation location, int64_t i64)
       : kind_{kind}, location_{location}, data_{i64} {}
 
-  /// \brief Constructs a token with a 64-bit floating-point value.
+  /// Constructs a token with a 64-bit floating-point value.
   ///
   /// \param kind The kind of the token.
   /// \param location The source location of the token.
@@ -132,17 +130,17 @@ class Token {
 
   /// @}
 
-  /// \brief Get the kind of token.
+  /// Get the kind of token.
   ///
   /// \return Token kind.
   constexpr TokenKind kind() const { return kind_; }
 
-  /// \brief Get the source location of the token.
+  /// Get the source location of the token.
   ///
   /// \return Source location of the token.
   constexpr SourceLocation location() const { return location_; }
 
-  /// \brief Get the token's string representation as a C-string along with its
+  /// Get the token's string representation as a C-string along with its
   ///        length.
   ///
   /// Note: The C-string data inside the returned tuple shares the same lifetime
@@ -156,17 +154,17 @@ class Token {
     return {str.data(), str.length()};
   }
 
-  /// \brief Get the token's string representation as an `std::string`.
+  /// Get the token's string representation as an `std::string`.
   ///
   /// \return A string representation of the token.
   std::string const& as_str() const { return std::get<std::string>(data_); }
 
-  /// \brief Get the token's value as an `int64_t`.
+  /// Get the token's value as an `int64_t`.
   ///
   /// \return An integer with type `int64_t`.
   int64_t as_i64() const { return std::get<int64_t>(data_); }
 
-  /// \brief Get the token's value as a `double`.
+  /// Get the token's value as a `double`.
   ///
   /// \return A number with type `double`.
   double as_f64() const { return std::get<double>(data_); }

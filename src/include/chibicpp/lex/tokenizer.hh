@@ -17,24 +17,24 @@ namespace chibicpp {
 
 namespace {
 
-/// \brief Checks if a character is an alphabetic letter or an underscore.
+/// Checks if a character is an alphabetic letter or an underscore.
 ///
 /// This function determines if the given character is an alphabetic letter
 /// (a-z, A-Z) or an underscore ('_').
 ///
 /// \param ch The character to check.
 /// \return `true` if the character is an alphabetic letter or an underscore,
-///         otherwise `false`.
+///         `false` otherwise
 bool is_alpha(int ch) { return std::isalpha(ch) || ch == '_'; }
 
-/// \brief Checks if a character is alphanumeric or an underscore.
+/// Checks if a character is alphanumeric or an underscore.
 ///
 /// This function determines if the given character is either an alphabetic
 /// letter (a-z, A-Z), a digit (0-9), or an underscore ('_').
 ///
 /// \param ch The character to check.
 /// \return `true` if the character is an alphabetic letter, a digit, or an
-///         underscore, otherwise `false`.
+///         underscore, `false` otherwise
 bool is_alnum(int ch) { return is_alpha(ch) || std::isdigit(ch); }
 
 }  // namespace
@@ -43,7 +43,7 @@ class Tokenizer {
  public:
   static const std::vector<std::string> kKeywords;
 
-  explicit Tokenizer(char const* content, size_t size)
+  explicit Tokenizer(const char* content, size_t size)
       : begin_(content), end_(content + size), pos_(content) {}
 
   /// Get next token.
@@ -61,7 +61,7 @@ class Tokenizer {
     }
 
     if (is_eof()) {
-      return Token::dummy_eof();
+      return Token::dummy();
     }
 
     return parse_token();
@@ -88,7 +88,7 @@ class Tokenizer {
     return false;
   }
 
-  /// \brief Checks if the end of the file has been reached.
+  /// Checks if the end of the file has been reached.
   ///
   /// Note: If the input content consists only of spaces or newlines,
   /// `is_eof` will return `false` since the end of the file has not been
@@ -98,7 +98,7 @@ class Tokenizer {
   constexpr bool is_eof() const { return pos_ >= end_; }
 
   struct LocationGuard {
-    LocationGuard(char const* init_pos, char const** init_ppos,
+    LocationGuard(const char* init_pos, const char** init_ppos,
                   SourceLocation& init_loc)
         : pos(init_pos), ppos(init_ppos), location(init_loc) {}
 
@@ -110,12 +110,12 @@ class Tokenizer {
       return new_pos - pos;
     }
 
-    char const* pos;
-    char const** ppos;
+    const char* pos;
+    const char** ppos;
     SourceLocation& location;
   };
 
-  /// \brief Check if current position starts with a keyword.
+  /// Check if current position starts with a keyword.
   ///
   /// This function checks if the current position (`pos`) in the input matches
   /// any of the keywords stored in the `kKeywords` vector.
@@ -126,7 +126,7 @@ class Tokenizer {
   /// \param pos The starting position of the string to compare.
   /// \param max_size The maximum length of the string to check.
   /// \return The index of the keyword if it exists, otherwise return -1.
-  static int index_of_keyword(char const* pos, size_t max_size) {
+  static int index_of_keyword(const char* pos, size_t max_size) {
     auto iter = std::find_if(kKeywords.begin(), kKeywords.end(),
                              [pos, max_size](auto const& str) {
                                if (max_size < str.size()) {
@@ -419,7 +419,7 @@ class Tokenizer {
   /// \param str A pointer to string.
   /// \param len Size of the string.
   /// \return `true` if the content matches `str`; otherwise return `false`.
-  bool advance_if_match(char const* str, size_t len) {
+  bool advance_if_match(const char* str, size_t len) {
     if (available() < len || std::strncmp(pos_, str, len) != 0) {
       return false;
     }
@@ -444,19 +444,19 @@ class Tokenizer {
   /// \return Avaiable bytes.
   size_t available() const { return end_ - pos_; }
 
-  char const* begin_;
-  char const* end_;
-  char const* pos_;
+  const char* begin_;
+  const char* end_;
+  const char* pos_;
   SourceLocation location_{};
 };
 
-/// \brief Extracts all the tokens from the specified memory
+/// Extracts all the tokens from the specified memory
 ///        buffer.
 class Lexer {
  public:
   static constexpr size_t kInvalidMark = static_cast<size_t>(-1);
 
-  explicit Lexer(char const* content, size_t size)
+  explicit Lexer(const char* content, size_t size)
       : idx_(0), mark_(kInvalidMark) {
     Tokenizer tok(content, size);
 
@@ -471,13 +471,13 @@ class Lexer {
     }
   }
 
-  /// \brief Mark the current index position for future resetting.
+  /// Mark the current index position for future resetting.
   ///
   /// Saves the current index (`idx_`) to `mark_`, allowing the position
   /// to be restored later by calling `reset()`.
   void mark() { mark_ = idx_; }
 
-  /// \brief Reset the index to the previously marked position. If no valid
+  /// Reset the index to the previously marked position. If no valid
   /// mark
   ///        has been set, it throws an error.
   ///
@@ -493,14 +493,13 @@ class Lexer {
   /// @name Peek.
   /// @{
 
-  /// \brief Attempt to peek at the current token and check if it matches the
+  /// Attempt to peek at the current token and check if it matches the
   ///        specified token kind.
   ///
   /// \param kind The expected token kind to match.
-  /// \param out_token Output token that will be assigned the token if
-  /// matched. \return `true` if the current token matches the specified kind,
-  /// otherwise
-  ///         `false`.
+  /// \param out_token Output token that will be assigned the token if matched.
+  /// \return `true` if the current token matches the specified kind,
+  ///         `false` otherwise.
   bool try_peek(TokenKind kind, Token& out_token) {
     if (is_eof() || tokens_[idx_].kind() != kind) {
       return false;
@@ -511,15 +510,16 @@ class Lexer {
     return true;
   }
 
-  /// \brief Attempt to peek at the current token and check if it matches a
+  bool try_peek(const char* op) { return try_peek(op, Token::dummy()); }
+
+  /// Attempt to peek at the current token and check if it matches a
   ///        reserved keyword or punctuator.
   ///
   /// \param op The expected string (keyword or punctuator) to match.
   /// \param out_token Output token that will be assigned the token if
   /// matched. \return `true` if the current token matches the specified
-  /// string,
-  ///         otherwise `false`.
-  bool try_peek(char const* op, Token& out_token) {
+  ///         string, `false` otherwise
+  bool try_peek(const char* op, Token& out_token) {
     if (!try_peek(TokenKind::kReserved, out_token)) {
       return false;
     }
@@ -537,7 +537,7 @@ class Lexer {
 
   /// @}
 
-  /// @name Consume.
+  /// @name Consume
   /// @{
 
   bool try_consume(TokenKind kind, Token& out_token) {
@@ -550,16 +550,20 @@ class Lexer {
     return true;
   }
 
-  /// \brief Try to consume the specified token.
+  bool try_consume_identifier(Token& out_token) {
+    return try_consume(TokenKind::kIdentifier, out_token);
+  }
+
+  /// Try to consume the specified token.
   ///
   /// Tokenizer tries to compare the specified `token` with current token in
   /// buffer, if they are matched, current token will be consumed, otherwise,
   /// nothing happens.
   ///
   /// \param op
-  /// \return `true` if succeed to consume this token, otherwise `false`.
-  bool try_consume(char const* op) {
-    if (!try_peek(op, Token::dummy_eof())) {
+  /// \return `true` if succeed to consume this token, `false` otherwise
+  bool try_consume(const char* op) {
+    if (!try_peek(op, Token::dummy())) {
       return false;
     }
 
@@ -581,7 +585,7 @@ class Lexer {
     }
   }
 
-  void expect(char const* op) {
+  void expect(const char* op) {
     if (!try_consume(op)) {
       auto err = error(op);
 
@@ -591,7 +595,7 @@ class Lexer {
 
   void expect_number(Token& token) { expect(TokenKind::kNum, token); }
 
-  /// \brief Expect next token is an identifier. If it is, this token will be
+  /// Expect next token is an identifier. If it is, this token will be
   ///        consumed, otherwise an exception will be thrown.
   ///
   /// \param token
