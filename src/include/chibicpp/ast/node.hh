@@ -130,7 +130,7 @@ class Var {
 class Node {
  public:
   /// AST node.
-  enum NodeID {
+  enum ID {
     kAdd,       ///< num + num
     kPtrAdd,    ///< ptr + num or num + ptr
     kSub,       ///< -
@@ -159,9 +159,9 @@ class Node {
     kEmpty,     ///< Empty statement
   };
 
-  explicit Node(NodeID id) : id_{id} {}
+  explicit Node(ID id) : id_{id} {}
 
-  NodeID id() const { return id_; }
+  ID id() const { return id_; }
 
   ObserverPtr<Type> type() const { return type_; }
 
@@ -198,7 +198,7 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_binary(NodeID id, std::unique_ptr<Node> lhs,
+  static std::unique_ptr<Node> make_binary(ID id, std::unique_ptr<Node> lhs,
                                            std::unique_ptr<Node> rhs) {
     auto node = std::make_unique<Node>(id);
 
@@ -209,8 +209,7 @@ class Node {
     return node;
   }
 
-  static std::unique_ptr<Node> make_unary(NodeID id,
-                                          std::unique_ptr<Node> expr) {
+  static std::unique_ptr<Node> make_unary(ID id, std::unique_ptr<Node> expr) {
     auto node = make_binary(id, std::move(expr), nullptr);
 
     node->update_type();
@@ -362,7 +361,7 @@ class Node {
   const std::string& func_name() const { return func_name_; }
 
  private:
-  NodeID id_;                  ///< Node kind.
+  ID id_;                      ///< Node kind.
   ObserverPtr<Type> type_;     ///< Type, e.g. int or pointer to int
   ObserverPtr<Var> var_;       ///< Used if kind == kVar.
   long num_;                   ///< Used if kind == kNum.
@@ -417,16 +416,14 @@ class Function : public SymbolTableIterator {
   ///
   /// For example, consider a function `foo`. The approximate stack size
   /// required for this function is 3 * sizeof(int).
-  /// @code
+  /// \code
   /// void foo() { int a = 1; int b = 2; int c = 3; }
-  /// @endcode
+  /// \endcode
   ///
   /// \return Stack size.
   int stack_size() const { return stack_size_; }
 
-  /// Get function name.
-  ///
-  /// \return
+  /// \return The function name.
   std::string name() const { return prototype_->fname; }
 
   /// @name Iterators
@@ -502,7 +499,7 @@ class Program : public SymbolTableIterator {
                    std::unique_ptr<SymbolTable> sym_table)
       : SymbolTableIterator{std::move(sym_table)}, funcs_{std::move(funcs)} {}
 
-  /// \name Iterators
+  /// @name Function Iterator
   /// @{
 
   /// Returns an iterator to the beginning of the functions container.
@@ -517,6 +514,25 @@ class Program : public SymbolTableIterator {
   auto func_end() const { return funcs_.end(); }
 
   /// @}
+
+  /// \return The number of functions inside program.
+  std::size_t func_count() const { return funcs_.size(); }
+
+  /// Get a function by its name.
+  ///
+  /// \param fname The name of the function to search for.
+  /// \return A pointer to the function if found; nullptr otherwise.
+  ObserverPtr<Function> get_function(const std::string& fname) const {
+    auto it = std::find_if(funcs_.begin(), funcs_.end(), [&fname](auto& uptr) {
+      return uptr->name() == fname;
+    });
+
+    if (it == funcs_.end()) {
+      return nullptr;
+    }
+
+    return it->get();
+  }
 
  private:
   std::vector<std::unique_ptr<Function>> funcs_;

@@ -96,6 +96,21 @@ class SymbolTableIterator {
   auto var_rend() { return sym_table_->vars_.rend(); }
   auto var_rend() const { return sym_table_->vars_.rend(); }
 
+  /// \return The number of string literals inside program.
+  std::size_t string_literal_count() const {
+    return std::distance(string_literal_begin(), string_literal_end());
+  }
+
+  /// \return The number of static variables inside program.
+  std::size_t static_count() const {
+    return std::distance(static_begin(), static_end());
+  }
+
+  /// \return The number of global variables inside program.
+  std::size_t var_count() const {
+    return std::distance(var_begin(), var_end());
+  }
+
  private:
   std::unique_ptr<SymbolTable> sym_table_;
 };

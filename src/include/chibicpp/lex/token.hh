@@ -91,6 +91,10 @@ class Token {
   static Token& dummy() {
     static Token token;
 
+    // The token may be modified during parsing.
+    // We need to reset the token kind.
+    token.kind_ = TokenKind::kEOF;
+
     return token;
   }
 
@@ -98,7 +102,7 @@ class Token {
   /// @{
 
   /// Construct a EOF token.
-  Token() : kind_(TokenKind::kEOF) {}
+  Token() : kind_{TokenKind::kEOF} {}
 
   /// Constructs a token with a string value.
   ///
@@ -108,7 +112,7 @@ class Token {
   /// \param kind The kind of the token.
   /// \param location The source location of the token.
   /// \param str A string.
-  Token(TokenKind kind, SourceLocation location, std::string const& str)
+  Token(TokenKind kind, SourceLocation location, const std::string& str)
       : kind_{kind}, location_{location}, data_{str} {}
 
   /// Constructs a token with a 64-bit integer value.
@@ -130,14 +134,10 @@ class Token {
 
   /// @}
 
-  /// Get the kind of token.
-  ///
-  /// \return Token kind.
+  /// \return The token kind.
   constexpr TokenKind kind() const { return kind_; }
 
-  /// Get the source location of the token.
-  ///
-  /// \return Source location of the token.
+  /// \return The source location of the token.
   constexpr SourceLocation location() const { return location_; }
 
   /// Get the token's string representation as a C-string along with its
@@ -154,10 +154,8 @@ class Token {
     return {str.data(), str.length()};
   }
 
-  /// Get the token's string representation as an `std::string`.
-  ///
   /// \return A string representation of the token.
-  std::string const& as_str() const { return std::get<std::string>(data_); }
+  const std::string& as_str() const { return std::get<std::string>(data_); }
 
   /// Get the token's value as an `int64_t`.
   ///
@@ -191,6 +189,15 @@ class Token {
     os << " => " << token_kind_to_string(kind);
 
     return os;
+  }
+
+  /// Compares this token with another token for equality.
+  /// This method checks if both tokens have the same kind and data.
+  ///
+  /// \param other  The token to compare against
+  /// \return true if both tokens are equal; false otherwise.
+  bool equals(const Token& other) const {
+    return kind() == other.kind() && data_ == other.data_;
   }
 
  private:

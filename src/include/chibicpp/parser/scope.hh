@@ -197,9 +197,9 @@ class ScopeStack {
   std::vector<std::unique_ptr<Scope>> scope_stack_;
 };
 
-class FunctionScope {
+class VarScope {
  public:
-  explicit FunctionScope(Scope::Flag flag = Scope::kFnScope)
+  explicit VarScope(Scope::Flag flag)
       : sym_table_{std::make_unique<SymbolTable>()},
         var_stack_{flag},
         tag_stack_{flag},
@@ -302,12 +302,15 @@ class FunctionScope {
   }
 
   std::unique_ptr<SymbolTable> release_symbol_table() {
-    // Need to disable scope stack.
+    // Need to clear scope stack.
     var_stack_.get_scope()->clear();
     tag_stack_.get_scope()->clear();
     static_stack_.get_scope()->clear();
 
-    return std::move(sym_table_);
+    auto tmp = std::make_unique<SymbolTable>();
+    std::swap(tmp, sym_table_);
+
+    return tmp;
   }
 
  protected:
@@ -321,17 +324,6 @@ class FunctionScope {
   ScopeStack tag_stack_;
   /// Scope for static variables declared or defined within the function.
   ScopeStack static_stack_;
-};
-
-class ProgramScope : public FunctionScope {
- public:
-  ProgramScope()
-      : FunctionScope{Scope::kTranslationUnitScope},
-        func_scope_{std::make_unique<Scope>(Scope::kTranslationUnitScope)} {}
-
- private:
-  /// The function declared or defined in the global scope.
-  std::unique_ptr<Scope> func_scope_;
 };
 
 }  // namespace chibicpp

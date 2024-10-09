@@ -27,6 +27,6 @@ assert() {
   fi
 }
 
-assert 1 'int main() { ({ struct {char a; int b; char c;} x; x.a=1; x.b=2; x.c=3; x.a; }); }'
+assert 8 'int main() { int a=3; int z=5; a+z; }'
 
 echo OK

@@ -14,11 +14,13 @@ class Var;
 
 class Parser {
  public:
-  explicit Parser(Lexer& lexer) : lexer_(lexer) {}
+  /// Constructs a parser using the specified lexer.
+  ///
+  /// \param lexer The lexer that supplies the tokens.
+  explicit Parser(Lexer& lexer) : lexer_{lexer} {}
 
   std::unique_ptr<Program> parse_program();
-
- private:
+  std::unique_ptr<Function> parse_function();
   /// Parse a function prototype.
   ///
   /// For example, the prototype could be `int foo(int a, int b)`.
@@ -33,8 +35,6 @@ class Parser {
   /// Parse function body.
   std::vector<std::unique_ptr<Node>> parse_function_body();
 
-  std::unique_ptr<Function> parse_function();
-
   /// stmt ::= "return" expr ";"
   ///        | "if" "(" expr ")" stmt ( "else" stmt )?
   ///        | expr ";"
@@ -42,6 +42,8 @@ class Parser {
   ///
   /// \return
   std::unique_ptr<Node> parse_stmt();
+
+  /// while-stmt ::= "while" "(" condition ")" stmt
   std::unique_ptr<Node> parse_while_stmt();
   std::unique_ptr<Node> parse_for_stmt();
   std::unique_ptr<Node> parse_block_stmt();
@@ -57,6 +59,7 @@ class Parser {
   std::unique_ptr<Node> parse_unary();
   std::unique_ptr<Node> parse_postfix();
   std::unique_ptr<Node> parse_struct_ref(std::unique_ptr<Node> node);
+
   std::unique_ptr<Node> parse_expr_stmt();
   std::unique_ptr<Node> parse_declaration();
 
@@ -83,6 +86,7 @@ class Parser {
   ObserverPtr<Type> parse_struct_decl();
   std::unique_ptr<Member> parse_struct_member();
 
+ private:
   /// \name Utility method
   /// @{
 
@@ -110,21 +114,57 @@ class Parser {
   bool is_typename();
 
   /// @}
-  ObserverPtr<Var> find_tag(const std::string& ident);
-  ObserverPtr<FunctionScope> scope() const { return context_.scope; }
+  ObserverPtr<VarScope> scope() const { return context_.cur_scope(); }
 
-  class Context {
+  class ScopeContext {
    public:
-    ObserverPtr<FunctionScope> scope;
+    ScopeContext()
+        : lscope_{std::make_unique<VarScope>(Scope::kFnScope)},
+          gscope_{std::make_unique<VarScope>(Scope::kTranslationUnitScope)},
+          cur_scope_{gscope_.get()} {}
+
+    void set_local_scope() { cur_scope_ = lscope_.get(); }
+    void set_global_scope() { cur_scope_ = gscope_.get(); }
+    ObserverPtr<VarScope> cur_scope() const { return cur_scope_; }
+
+    /// Searches for a variable in the current context using the provided
+    /// identifier.
+    ///
+    /// \param ident The name of the variable to search for.
+    /// \return A pointer to the var if found; nullptr otherwise.
+    ObserverPtr<Var> search_var(const std::string& ident) {
+      // If we are inside function, search function scope first.
+      if (cur_scope_.get() == lscope_.get()) {
+        auto var = lscope_->search_var(ident);
+
+        if (var) {
+          return var;
+        }
+      }
+
+      return gscope_->search_var(ident);
+    }
+
+    ObserverPtr<Var> search_tag(const std::string& ident) {
+      if (cur_scope_.get() == lscope_.get()) {
+        auto tag = lscope_->search_tag(ident);
+
+        if (tag) {
+          return tag;
+        }
+      }
+
+      return gscope_->search_tag(ident);
+    }
+
+   private:
+    std::unique_ptr<VarScope> lscope_;  ///< Local scope.
+    std::unique_ptr<VarScope> gscope_;  ///< Global scope.
+    ObserverPtr<VarScope> cur_scope_;   ///< Pointer to current scope.
   };
 
-  void set_fn_scope() { context_.scope = &fn_scope_; }
-  void set_pg_scope() { context_.scope = &pg_scope_; }
-
   Lexer& lexer_;
-  Context context_;
-  FunctionScope fn_scope_;
-  ProgramScope pg_scope_;
+  ScopeContext context_;
 };
 
 }  // namespace chibicpp

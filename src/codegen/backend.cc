@@ -188,22 +188,21 @@ void Backend::visit_node(ObserverPtr<Node> node, AstContext& context) {
 
       visit_node(node->cond(), context);
 
+      stream_ << "  pop rax\n";
+      stream_ << "  cmp rax, 0\n";
+
       if (node->els()) {
-        stream_ << "  pop rax\n";
-        stream_ << "  cmp rax, 0\n";
         stream_ << "  je  .L.else." << seq << '\n';
         visit_node(node->then(), context);
         stream_ << "  jmp .L.end." << seq << '\n';
         stream_ << ".L.else." << seq << ":\n";
         visit_node(node->els(), context);
-        stream_ << ".L.end." << seq << ":\n";
       } else {
-        stream_ << "  pop rax\n";
-        stream_ << "  cmp rax, 0\n";
         stream_ << "  je  .L.end." << seq << '\n';
         visit_node(node->then(), context);
-        stream_ << ".L.end." << seq << ":\n";
       }
+
+      stream_ << ".L.end." << seq << ":\n";
 
       return;
     }
@@ -392,7 +391,7 @@ void Backend::gen_lval(ObserverPtr<Node> node, AstContext& context) {
   gen_addr(node, context);
 }
 
-/// \brief Pushes the given node's address to the stack.
+/// Pushes the given node's address to the stack.
 ///
 /// \param node
 void Backend::gen_addr(ObserverPtr<Node> node, AstContext& context) {

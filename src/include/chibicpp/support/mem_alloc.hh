@@ -33,6 +33,7 @@ inline void* safe_malloc(size_t sz) {
 
     REPORT_ALLOC_FAIL("Allocation failed");
   }
+
   return result;
 }
 

@@ -18,19 +18,18 @@ std::unique_ptr<Program> Parser::parse_program() {
   std::vector<std::unique_ptr<Function>> prog;
 
   while (!lexer_.is_eof()) {
+    context_.set_local_scope();
+
     if (is_function()) {
-      set_fn_scope();
       prog.push_back(parse_function());
 
       // TODO(gc): Trace one function only?
       stack_tracer.clear();
     } else {
-      set_pg_scope();
+      context_.set_global_scope();
       parse_global_var();
     }
   }
-
-  set_pg_scope();
 
   return std::make_unique<Program>(std::move(prog),
                                    scope()->release_symbol_table());
@@ -70,17 +69,18 @@ std::vector<std::unique_ptr<Node>> Parser::parse_function_body() {
 /// params   ::= param ("," param)*
 /// param    ::= basetype ident
 ///
-/// @return
+/// \return
 std::unique_ptr<Function> Parser::parse_function() {
   STACK_GUARD();
 
   scope()->enter(Scope::kFnScope);
   auto proto = parse_function_prototype();
   auto body = parse_function_body();
+  auto sym_table = scope()->release_symbol_table();
   scope()->leave();
 
   return std::make_unique<Function>(std::move(proto), std::move(body),
-                                    scope()->release_symbol_table());
+                                    std::move(sym_table));
 }
 
 /// C99 6.8 Statements and blocks.
@@ -107,15 +107,21 @@ std::unique_ptr<Function> Parser::parse_function() {
 ///                      | statement
 
 /// stmt ::= "return" expr ";"
-///               | "if" "(" expr ")" stmt ("else" stmt)?
-///               | "while" "(" expr ")" stmt
-///               | "for" "(" expr? ";" expr? ";" expr? ")" stmt
-///               | "{" stmt* "}"
-///               | declaration
-///               | expr ";"
+///        | "if" "(" expr ")" stmt ("else" stmt)?
+///        | "while" "(" expr ")" stmt
+///        | "for" "(" expr? ";" expr? ";" expr? ")" stmt
+///        | "{" stmt* "}"
+///        | declaration
+///        | expr ";"
+///        | ";"
 /// \return
 std::unique_ptr<Node> Parser::parse_stmt() {
   STACK_GUARD();
+
+  // Empty statement.
+  if (lexer_.try_consume(";")) {
+    return Node::make_empty();
+  }
 
   if (lexer_.try_consume("return")) {
     auto node = Node::make_unary(Node::kReturn, parse_expr());
@@ -128,7 +134,7 @@ std::unique_ptr<Node> Parser::parse_stmt() {
     return parse_if_stmt();
   }
 
-  if (lexer_.try_consume("while")) {
+  if (lexer_.try_peek("while")) {
     return parse_while_stmt();
   }
 
@@ -159,6 +165,8 @@ std::unique_ptr<Node> Parser::parse_stmt() {
 ///                       | "for" "("
 /// \return
 std::unique_ptr<Node> Parser::parse_while_stmt() {
+  assert(lexer_.try_consume("while"));
+
   lexer_.expect("(");
   auto cond = parse_expr();
   lexer_.expect(")");
@@ -565,7 +573,7 @@ std::unique_ptr<Node> Parser::parse_primary() {
 
     // Variable.
     auto const& ident = token.as_str();
-    auto var = scope()->search_var(ident);
+    auto var = context_.search_var(ident);
 
     if (!var) {
       CHIBICPP_THROW_ERROR(ident + " is not defined.");
@@ -639,7 +647,7 @@ ObserverPtr<Type> Parser::parse_basetype() {
     Token ident;
 
     lexer_.expect_identider(ident);
-    auto var = scope()->search_var(ident.as_str());
+    auto var = context_.search_var(ident.as_str());
 
     assert(var && var->is_typedef());
 
@@ -653,14 +661,18 @@ ObserverPtr<Type> Parser::parse_basetype() {
   return type;
 }
 
+/// Checks if the current token sequence represents a function declaration.
+///
+/// \return true if the current sequence is a function declaration; false
+///         otherwise.
 bool Parser::is_function() {
   STACK_GUARD();
 
   lexer_.mark();
 
   (void)parse_basetype();
-  bool is_func = lexer_.try_consume(TokenKind::kIdentifier, Token::dummy()) &&
-                 lexer_.try_consume("(");
+  auto is_func =
+      lexer_.try_consume_identifier(Token::dummy()) && lexer_.try_consume("(");
 
   lexer_.reset();
 
@@ -684,7 +696,7 @@ bool Parser::is_typename() {
     return false;
   }
 
-  auto var = scope()->search_var(token.as_str());
+  auto var = context_.search_var(token.as_str());
 
   if (!var || !var->is_typedef()) {
     return false;
@@ -855,7 +867,7 @@ ObserverPtr<Type> Parser::parse_struct_decl() {
   // Read a struct tag.
   // For example: `struct Person x;`.
   if (has_tag && !lexer_.try_peek("{", Token::dummy())) {
-    auto var = find_tag(tag.as_str());
+    auto var = context_.search_tag(tag.as_str());
 
     if (!var) {
       CHIBICPP_THROW_ERROR("Unknown struct type: ", tag.as_str());
@@ -896,17 +908,6 @@ std::unique_ptr<Member> Parser::parse_struct_member() {
   lexer_.expect(";");
 
   return std::make_unique<Member>(ident.as_str(), type);
-}
-
-ObserverPtr<Var> Parser::find_tag(const std::string& ident) {
-  // Find the function scope first.
-  auto var = fn_scope_.search_tag(ident);
-
-  if (var) {
-    return var;
-  }
-
-  return pg_scope_.search_tag(ident);
 }
 
 }  // namespace chibicpp

@@ -23,9 +23,9 @@ namespace {
 /// (a-z, A-Z) or an underscore ('_').
 ///
 /// \param ch The character to check.
-/// \return `true` if the character is an alphabetic letter or an underscore,
-///         `false` otherwise
-bool is_alpha(int ch) { return std::isalpha(ch) || ch == '_'; }
+/// \return true if the character is an alphabetic letter or an underscore,
+///         false otherwise
+inline bool is_alpha(int ch) { return std::isalpha(ch) || ch == '_'; }
 
 /// Checks if a character is alphanumeric or an underscore.
 ///
@@ -33,24 +33,34 @@ bool is_alpha(int ch) { return std::isalpha(ch) || ch == '_'; }
 /// letter (a-z, A-Z), a digit (0-9), or an underscore ('_').
 ///
 /// \param ch The character to check.
-/// \return `true` if the character is an alphabetic letter, a digit, or an
-///         underscore, `false` otherwise
-bool is_alnum(int ch) { return is_alpha(ch) || std::isdigit(ch); }
+/// \return true if the character is an alphabetic letter, a digit, or an
+///         underscore, false otherwise
+inline bool is_alnum(int ch) { return is_alpha(ch) || std::isdigit(ch); }
 
 }  // namespace
 
 class Tokenizer {
  public:
+  virtual ~Tokenizer() = default;
+
+  /// \return The next token if EOF hasn't been reached; EOF otherwise.
+  virtual Token next() = 0;
+};
+
+class BasicTokenizer : public Tokenizer {
+ public:
   static const std::vector<std::string> kKeywords;
 
-  explicit Tokenizer(const char* content, size_t size)
+  /// Constructs a tokenizer using the specified content and size.
+  ///
+  /// And the `content` parameter does not need to be null-terminated.
+  ///
+  /// \param content A pointer to the content to tokenize.
+  /// \param size The size of the content in byte.
+  BasicTokenizer(const char* content, size_t size)
       : begin_(content), end_(content + size), pos_(content) {}
 
-  /// Get next token.
-  ///
-  /// \return Type of `kEOF` token if eof has been reached; otherwise return
-  ///         next token.
-  Token next() {
+  Token next() override {
     while (true) {
       skip_whitespace();
 
@@ -91,10 +101,10 @@ class Tokenizer {
   /// Checks if the end of the file has been reached.
   ///
   /// Note: If the input content consists only of spaces or newlines,
-  /// `is_eof` will return `false` since the end of the file has not been
+  /// `is_eof` will return false since the end of the file has not been
   /// reached. However, the `next` method will return an `EOF` token.
   ///
-  /// \return `true` if reached eof; otherwise return `false.
+  /// \return true if reached eof; otherwise return `false.
   constexpr bool is_eof() const { return pos_ >= end_; }
 
   struct LocationGuard {
@@ -392,7 +402,7 @@ class Tokenizer {
     }
   }
 
-  /// @brief Skip the whitespace with side effect.
+  /// Skip the whitespace with side effect.
   ///
   /// Note: The side effect is to update the location.
   void skip_whitespace() {
@@ -418,7 +428,7 @@ class Tokenizer {
   ///
   /// \param str A pointer to string.
   /// \param len Size of the string.
-  /// \return `true` if the content matches `str`; otherwise return `false`.
+  /// \return true if the content matches `str`; otherwise return false.
   bool advance_if_match(const char* str, size_t len) {
     if (available() < len || std::strncmp(pos_, str, len) != 0) {
       return false;
@@ -450,24 +460,25 @@ class Tokenizer {
   SourceLocation location_{};
 };
 
-/// Extracts all the tokens from the specified memory
-///        buffer.
 class Lexer {
  public:
+  /// When the current position is marked, calling reset will move the cursor
+  /// back to this position. A value of `kInvalidMark` indicates that no valid
+  /// mark exists.
   static constexpr size_t kInvalidMark = static_cast<size_t>(-1);
 
   explicit Lexer(const char* content, size_t size)
-      : idx_(0), mark_(kInvalidMark) {
-    Tokenizer tok(content, size);
+      : idx_{}, mark_{kInvalidMark} {
+    BasicTokenizer tokenizer{content, size};
 
     while (true) {
-      auto token = tok.next();
+      auto tok = tokenizer.next();
 
-      if (token.kind() == TokenKind::kEOF) {
+      if (tok.kind() == TokenKind::kEOF) {
         break;
       }
 
-      tokens_.push_back(token);
+      tokens_.push_back(tok);
     }
   }
 
@@ -478,8 +489,7 @@ class Lexer {
   void mark() { mark_ = idx_; }
 
   /// Reset the index to the previously marked position. If no valid
-  /// mark
-  ///        has been set, it throws an error.
+  /// mark has been set, it throws an error.
   ///
   /// \throws Error if no mark has been set (mark_ is equal to kInvalidMark).
   void reset() {
@@ -498,8 +508,8 @@ class Lexer {
   ///
   /// \param kind The expected token kind to match.
   /// \param out_token Output token that will be assigned the token if matched.
-  /// \return `true` if the current token matches the specified kind,
-  ///         `false` otherwise.
+  /// \return true if the current token matches the specified kind,
+  ///         false otherwise.
   bool try_peek(TokenKind kind, Token& out_token) {
     if (is_eof() || tokens_[idx_].kind() != kind) {
       return false;
@@ -513,12 +523,13 @@ class Lexer {
   bool try_peek(const char* op) { return try_peek(op, Token::dummy()); }
 
   /// Attempt to peek at the current token and check if it matches a
-  ///        reserved keyword or punctuator.
+  /// reserved keyword or punctuator.
   ///
   /// \param op The expected string (keyword or punctuator) to match.
   /// \param out_token Output token that will be assigned the token if
-  /// matched. \return `true` if the current token matches the specified
-  ///         string, `false` otherwise
+  ///                  matched.
+  /// \return true if the current token matches the specified
+  ///         string; false otherwise.
   bool try_peek(const char* op, Token& out_token) {
     if (!try_peek(TokenKind::kReserved, out_token)) {
       return false;
@@ -561,7 +572,7 @@ class Lexer {
   /// nothing happens.
   ///
   /// \param op
-  /// \return `true` if succeed to consume this token, `false` otherwise
+  /// \return true if succeed to consume this token, false otherwise
   bool try_consume(const char* op) {
     if (!try_peek(op, Token::dummy())) {
       return false;
@@ -625,8 +636,16 @@ class Lexer {
     }
   }
 
+  Token next() {
+    if (is_eof()) {
+      return Token::dummy();
+    }
+
+    return tokens_[idx_++];
+  }
+
  private:
-  std::string error(std::string const& expect) {
+  std::string error(const std::string& expect) {
     std::ostringstream oss;
 
     oss << "Expect " << std::quoted(expect) << " but got ";

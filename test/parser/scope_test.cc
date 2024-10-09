@@ -18,7 +18,7 @@ TEST(VarBlockScope, EnterAndLeave) {
   //     }
   // }
 
-  FunctionScope scope;
+  VarScope scope{Scope::kTranslationUnitScope};
   auto type = TypeFactory::get_signed_int();
 
   scope.enter(Scope::kFnScope);

@@ -4,7 +4,7 @@
 
 namespace chibicpp {
 
-inline std::string operator_to_string(Node::NodeID id) {
+inline std::string operator_to_string(Node::ID id) {
   switch (id) {
     case Node::kAdd:
     case Node::kPtrAdd:
@@ -36,7 +36,7 @@ inline std::string operator_to_string(Node::NodeID id) {
   }
 }
 
-inline bool is_binary_operator(Node::NodeID id) {
+inline bool is_binary_operator(Node::ID id) {
   return id == Node::kAdd || id == Node::kPtrAdd || id == Node::kSub ||
          id == Node::kPtrSub || id == Node::kPtrDiff || id == Node::kMul ||
          id == Node::kDiv || id == Node::kEq || id == Node::kNe ||
